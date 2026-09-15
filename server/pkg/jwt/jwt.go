@@ -2,70 +2,57 @@ package jwt
 
 import (
 	"fmt"
-	"os"
 	"time"
 
-	"github.com/golang-jwt/jwt"
+	gojwt "github.com/golang-jwt/jwt/v5"
 )
 
-var JWT_SECRET = os.Getenv("JWT_SECRET")
-
-type KeysMap = struct {
-	Exp  string
-	UUID string
+// Signer issues and verifies HS256 (HMAC) tokens with a fixed secret and TTL.
+// It centralises our JWT conventions — the algorithm, the expiry, and the
+// security checks on verify — so the rest of the app never touches the JWT
+// library directly. Reuse it anywhere we need signed, expiring tokens.
+type Signer struct {
+	secret []byte
+	ttl    time.Duration
 }
 
-var Keys = &KeysMap{
-	Exp:  "exp",
-	UUID: "uuid",
+// New returns a Signer. secret is the HMAC key (keep it long and random); ttl is
+// how long issued tokens stay valid.
+func New(secret []byte, ttl time.Duration) *Signer {
+	return &Signer{secret: secret, ttl: ttl}
 }
 
-func Create(key string, value string) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		key:      value,
-		Keys.Exp: time.Now().AddDate(0, 0, 14).Unix(),
+// Sign issues a token that expires after the signer's TTL. subject is optional —
+// pass "" when there's no identity to carry; otherwise it lands in the standard
+// "sub" claim, ready for the day tokens need to name a user.
+func (s *Signer) Sign(subject string) (string, error) {
+	now := time.Now()
+	claims := gojwt.RegisteredClaims{
+		Subject:   subject,
+		IssuedAt:  gojwt.NewNumericDate(now),
+		ExpiresAt: gojwt.NewNumericDate(now.Add(s.ttl)),
+	}
+	return gojwt.NewWithClaims(gojwt.SigningMethodHS256, claims).SignedString(s.secret)
+}
+
+// Verify checks a token's signature and expiry and returns its subject. Any
+// non-nil error means the token is invalid, expired, or signed with the wrong
+// key or algorithm — callers should treat every error as "not authenticated".
+func (s *Signer) Verify(token string) (string, error) {
+	claims := &gojwt.RegisteredClaims{}
+	t, err := gojwt.ParseWithClaims(token, claims, func(t *gojwt.Token) (any, error) {
+		// Pin the algorithm: reject anything that isn't HMAC, to defeat
+		// alg-confusion attacks ("none", or an asymmetric alg abusing our key).
+		if _, ok := t.Method.(*gojwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return s.secret, nil
 	})
-
-	tokenString, err := token.SignedString([]byte(JWT_SECRET))
-
 	if err != nil {
 		return "", err
 	}
-
-	return tokenString, nil
-
-}
-
-func Parse(token string) (jwt.MapClaims, error) {
-	parsed, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("Unexpected signing method: %v", t.Header["alg"])
-		}
-		return []byte(JWT_SECRET), nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("Token is expired")
+	if !t.Valid {
+		return "", fmt.Errorf("invalid token")
 	}
-
-	claims, ok := parsed.Claims.(jwt.MapClaims)
-
-	if !ok {
-		return nil, fmt.Errorf("jwt.parseToken: Unable to extract claims from token")
-	}
-
-	return claims, nil
-
-}
-
-func IsExpired(claims jwt.MapClaims) bool {
-	exp, ok := claims[Keys.Exp].(float64)
-	if !ok {
-		fmt.Println("token.isExpired: Expiry cant be found")
-		return false
-	}
-	if time.Unix(int64(exp), 0).Before(time.Now()) {
-		return false
-	}
-	return true
+	return claims.Subject, nil
 }
