@@ -4,14 +4,20 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-// sendBuffer is how many outbound messages we queue per client before dropping.
-// A full buffer means a stuck connection, and we'd rather drop that client's
-// messages than block the whole hub.
-const sendBuffer = 16
+const (
+	sendBuffer = 16
+
+	// Connection safety limits.
+	maxMessageSize = 8192             // bytes; an SDP offer is the biggest legit payload
+	pongWait       = 60 * time.Second // no pong within this window => connection is dead
+	pingPeriod     = 50 * time.Second // ping this often; must be < pongWait
+	writeWait      = 10 * time.Second // max time allowed to write a single frame
+)
 
 // Client is one connected mate. id is fixed for the life of the socket; name,
 // color and channel are mutable presence and must only be touched under the
@@ -52,19 +58,40 @@ func (c *Client) trySend(msg []byte) {
 	}
 }
 
-// writePump is the ONLY goroutine that writes to the socket — gorilla forbids
-// concurrent writes, so everything outbound funnels through here.
+// writePump is the ONLY goroutine that writes to the socket. It drains the send
+// queue and, on a ticker, sends pings — both to keep the connection alive and to
+// detect a peer that's silently gone (no pong => the read deadline trips).
 func (c *Client) writePump() {
-	defer c.conn.Close()
-	for msg := range c.send {
-		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-			return
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+
+	for {
+		select {
+		case msg, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				// The hub closed the channel — send a close frame and stop.
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return // peer gone
+			}
 		}
 	}
 }
 
-// readPump runs the presence handshake, then reads until the socket closes,
-// handing each message to the router. Cleanup runs once, on any disconnect.
+// readPump runs the presence handshake, then reads until the socket closes. It
+// caps message size and enforces a read deadline that pongs keep resetting.
+// Cleanup runs once, on any disconnect.
 func (c *Client) readPump() {
 	defer func() {
 		c.hub.remove(c)
@@ -72,12 +99,18 @@ func (c *Client) readPump() {
 		close(c.send)
 	}()
 
+	c.conn.SetReadLimit(maxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
+
 	c.handshake()
 
 	for {
 		_, raw, err := c.conn.ReadMessage()
 		if err != nil {
-			return
+			return // disconnected / deadline / oversized frame -> deferred cleanup
 		}
 
 		var m Message
@@ -89,8 +122,8 @@ func (c *Client) readPump() {
 }
 
 // handshake sends the newcomer the full roster, then announces them (sitting in
-// the lobby) to everyone else. No WebRTC happens here — that only starts once
-// they join a channel.
+// the lobby) to everyone else. No WebRTC happens here — that starts once they
+// join a channel.
 func (c *Client) handshake() {
 	roster := c.hub.add(c)
 	c.trySend(encode(Message{Type: EventWelcome, To: c.id, Users: roster}))
