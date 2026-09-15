@@ -25,6 +25,10 @@ func main() {
 
 	hub := ws.NewHub()
 
+	// One allowlist drives BOTH the CORS middleware (HTTP) and the WebSocket
+	// CheckOrigin — a single source of truth for "who may talk to us".
+	origins := splitOrigins(os.Getenv("CORS_ORIGINS"))
+
 	r := mux.NewRouter()
 
 	// /session is a resource: POST = log in, GET = check/refresh, DELETE = log out.
@@ -32,12 +36,12 @@ func main() {
 	r.HandleFunc("/session", a.Session).Methods(http.MethodGet)
 	r.HandleFunc("/session", a.Logout).Methods(http.MethodDelete)
 
-	// The WebSocket is gated by a valid session cookie.
-	r.Handle("/ws", a.Require(ws.Handler(hub)))
+	// The WebSocket is gated by a valid session cookie AND an allowed origin.
+	r.Handle("/ws", a.Require(ws.Handler(hub, origins)))
 
 	// CORS wraps the whole router so preflight (OPTIONS) is answered before mux
-	// does method matching. Origins come from CORS_ORIGINS (comma-separated).
-	handler := middleware.Cors(splitOrigins(os.Getenv("CORS_ORIGINS")))(r)
+	// does method matching.
+	handler := middleware.Cors(origins)(r)
 
 	addr := ":" + port()
 	log.Println("dogspeak server listening on", addr)

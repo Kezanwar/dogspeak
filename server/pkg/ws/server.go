@@ -7,20 +7,31 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	// Fine for a hobby project. Lock this down to your real origin before shipping.
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
-
 // Handler returns an http.HandlerFunc that upgrades a request to a WebSocket and
-// wires it into the hub. Mount it on your router — gated by auth in main.go:
+// wires it into the hub.
 //
-//	r.Handle("/ws", authService.Require(ws.Handler(hub)))
+// allowedOrigins gates which sites may open a socket. CORS does NOT apply to
+// WebSocket handshakes, so this CheckOrigin is the WS equivalent of the CORS
+// allowlist — pass it the same origins, including your frontend. Without it,
+// gorilla's default would reject cross-origin connections outright (blocking your
+// own frontend); with the naive "return true" any site could hijack a session.
 //
-// By the time this runs, auth has already verified the session cookie. The
-// client connects with an optional ?name= and ?color= and lands in the lobby
-// (no channel); it joins a channel afterwards via a channel-change event.
-func Handler(hub *Hub) http.HandlerFunc {
+// Gate it with auth in main.go:
+//
+//	r.Handle("/ws", authService.Require(ws.Handler(hub, origins)))
+func Handler(hub *Hub, allowedOrigins []string) http.HandlerFunc {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		allowed[o] = struct{}{}
+	}
+
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			_, ok := allowed[r.Header.Get("Origin")]
+			return ok
+		},
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
