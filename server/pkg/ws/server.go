@@ -40,9 +40,9 @@ func Handler(hub *Hub, allowedOrigins []string) http.HandlerFunc {
 		}
 
 		name := r.URL.Query().Get("name")
-		color := r.URL.Query().Get("color")
+		colour := r.URL.Query().Get("colour")
 
-		c := newClient(hub, conn, name, color)
+		c := newClient(hub, conn, name, colour)
 		go c.writePump()
 		c.readPump() // blocks on this goroutine until the client disconnects
 	}

@@ -3,7 +3,7 @@ package ws
 // route decides what to do with an inbound message based on its Type. It's the
 // Go side of the events.md contract and the mirror of the frontend's store.
 //
-// Two buckets, same as before but now channel-aware:
+// Two buckets:
 //   - signalling: relayed to ONE peer, and only if they share the sender's channel
 //   - presence:   applied to the sender, then broadcast to EVERYONE (server-wide)
 func route(c *Client, m Message) {
@@ -13,18 +13,18 @@ func route(c *Client, m Message) {
 	switch m.Type {
 
 	// Channel-scoped signalling: forward verbatim to the one target peer.
-	case EventOffer, EventAnswer, EventCandidate:
+	case EventPeerOffer, EventPeerAnswer, EventPeerCandidate:
 		if m.To != "" {
 			c.hub.relayToPeer(c, m.To, encode(m))
 		}
 
 	// Presence: update the client, then fan the change out to everyone.
-	case EventChannelChange:
+	case EventUserChangeChannel:
 		c.hub.changeChannel(c, m.Channel)
-	case EventNameChange:
+	case EventUserChangeName:
 		c.hub.changeName(c, m.Name)
-	case EventColorChange:
-		c.hub.changeColor(c, m.Color)
+	case EventUserChangeColour:
+		c.hub.changeColour(c, m.Colour)
 
 	default:
 		// Unknown event type: ignore. While developing you might log it.

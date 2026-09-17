@@ -20,29 +20,29 @@ const (
 )
 
 // Client is one connected mate. id is fixed for the life of the socket; name,
-// color and channel are mutable presence and must only be touched under the
+// colour and channel are mutable presence and must only be touched under the
 // hub's lock (see hub.go). channel == "" means they're in the lobby.
 type Client struct {
 	id      string
 	name    string
-	color   string
+	colour  string
 	channel string
 	conn    *websocket.Conn
 	send    chan []byte
 	hub     *Hub
 }
 
-func newClient(hub *Hub, conn *websocket.Conn, name, color string) *Client {
+func newClient(hub *Hub, conn *websocket.Conn, name, colour string) *Client {
 	if name == "" {
 		name = "anon"
 	}
-	if color == "" {
-		color = "#8a8a8a"
+	if colour == "" {
+		colour = "#8a8a8a"
 	}
 	return &Client{
 		id:      randID(),
 		name:    name,
-		color:   color,
+		colour:  colour,
 		channel: "", // start in the lobby, not in any channel
 		conn:    conn,
 		send:    make(chan []byte, sendBuffer),
@@ -126,10 +126,10 @@ func (c *Client) readPump() {
 // join a channel.
 func (c *Client) handshake() {
 	roster := c.hub.add(c)
-	c.trySend(encode(Message{Type: EventWelcome, To: c.id, Users: roster}))
+	c.trySend(encode(Message{Type: EventSessionWelcome, To: c.id, Users: roster}))
 	c.hub.broadcastAll(c.id, encode(Message{
 		Type: EventUserJoined, From: c.id,
-		Name: c.name, Color: c.color, Channel: c.channel,
+		Name: c.name, Colour: c.colour, Channel: c.channel,
 	}))
 }
 

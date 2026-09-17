@@ -6,7 +6,7 @@ import "sync"
 // keyed by id. There is deliberately NO list of channels — a channel is just
 // the string in each client's `channel` field. "Who's in lounge" is derived by
 // filtering clients, never stored. The mutex guards clients AND the mutable
-// fields on each Client (channel/name/color), so only touch those through hub
+// fields on each Client (channel/name/colour), so only touch those through hub
 // methods.
 type Hub struct {
 	mu      sync.Mutex
@@ -19,7 +19,7 @@ func NewHub() *Hub {
 }
 
 // add registers a client and returns a snapshot of the whole roster (including
-// the newcomer). Done under one lock so the snapshot is consistent.
+// the newcomer), keyed by id. Done under one lock so the snapshot is consistent.
 func (h *Hub) add(c *Client) map[string]UserInfo {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -28,7 +28,7 @@ func (h *Hub) add(c *Client) map[string]UserInfo {
 
 	roster := make(map[string]UserInfo, len(h.clients))
 	for id, cl := range h.clients {
-		roster[id] = UserInfo{Name: cl.name, Color: cl.color, Channel: cl.channel}
+		roster[id] = UserInfo{Name: cl.name, Colour: cl.colour, Channel: cl.channel}
 	}
 	return roster
 }
@@ -46,7 +46,7 @@ func (h *Hub) changeChannel(c *Client, channel string) {
 	h.mu.Lock()
 	c.channel = channel
 	h.mu.Unlock()
-	h.broadcastAll(c.id, encode(Message{Type: EventChannelChange, From: c.id, Channel: channel}))
+	h.broadcastAll(c.id, encode(Message{Type: EventUserChangeChannel, From: c.id, Channel: channel}))
 }
 
 // changeName updates a client's name and broadcasts the delta.
@@ -54,15 +54,15 @@ func (h *Hub) changeName(c *Client, name string) {
 	h.mu.Lock()
 	c.name = name
 	h.mu.Unlock()
-	h.broadcastAll(c.id, encode(Message{Type: EventNameChange, From: c.id, Name: name}))
+	h.broadcastAll(c.id, encode(Message{Type: EventUserChangeName, From: c.id, Name: name}))
 }
 
-// changeColor updates a client's colour and broadcasts the delta.
-func (h *Hub) changeColor(c *Client, color string) {
+// changeColour updates a client's colour and broadcasts the delta.
+func (h *Hub) changeColour(c *Client, colour string) {
 	h.mu.Lock()
-	c.color = color
+	c.colour = colour
 	h.mu.Unlock()
-	h.broadcastAll(c.id, encode(Message{Type: EventColorChange, From: c.id, Color: color}))
+	h.broadcastAll(c.id, encode(Message{Type: EventUserChangeColour, From: c.id, Colour: colour}))
 }
 
 // relayToPeer forwards a signalling message to one peer — but ONLY if that peer
