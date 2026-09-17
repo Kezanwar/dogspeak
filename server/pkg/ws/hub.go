@@ -20,17 +20,15 @@ func NewHub() *Hub {
 
 // add registers a client and returns a snapshot of the whole roster (including
 // the newcomer). Done under one lock so the snapshot is consistent.
-func (h *Hub) add(c *Client) []UserInfo {
+func (h *Hub) add(c *Client) map[string]UserInfo {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	h.clients[c.id] = c
 
-	roster := make([]UserInfo, 0, len(h.clients))
-	for _, cl := range h.clients {
-		roster = append(roster, UserInfo{
-			ID: cl.id, Name: cl.name, Color: cl.color, Channel: cl.channel,
-		})
+	roster := make(map[string]UserInfo, len(h.clients))
+	for id, cl := range h.clients {
+		roster[id] = UserInfo{Name: cl.name, Color: cl.color, Channel: cl.channel}
 	}
 	return roster
 }

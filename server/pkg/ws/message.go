@@ -20,9 +20,10 @@ const (
 	EventCandidate = "candidate"
 )
 
-// UserInfo is one person's public presence, as sent in the roster and deltas.
+// UserInfo is one person's public presence. In the welcome roster it's keyed by
+// id (the map key), so the id isn't repeated inside the value — mirroring how the
+// frontend stores it in an id-keyed observable map.
 type UserInfo struct {
-	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Color   string `json:"color"`
 	Channel string `json:"channel"` // "" = lobby (no channel)
@@ -35,14 +36,14 @@ type UserInfo struct {
 // the SDP/ICE payload for signalling events, which the server forwards without
 // ever looking inside.
 type Message struct {
-	Type    string          `json:"type"`
-	To      string          `json:"to,omitempty"`    // target peer, for relayed signalling
-	From    string          `json:"from,omitempty"`  // sender id; the server ALWAYS stamps this
-	Name    string          `json:"name,omitempty"`  // name-change payload
-	Color   string          `json:"color,omitempty"` // color-change payload
-	Channel string          `json:"channel,omitempty"`
-	Data    json.RawMessage `json:"data,omitempty"`  // opaque: SDP / ICE, passed straight through
-	Users   []UserInfo      `json:"users,omitempty"` // welcome roster only
+	Type    string              `json:"type"`
+	To      string              `json:"to,omitempty"`    // target peer, for relayed signalling
+	From    string              `json:"from,omitempty"`  // sender id; the server ALWAYS stamps this
+	Name    string              `json:"name,omitempty"`  // name-change payload
+	Color   string              `json:"color,omitempty"` // color-change payload
+	Channel string              `json:"channel,omitempty"`
+	Data    json.RawMessage     `json:"data,omitempty"`  // opaque: SDP / ICE, passed straight through
+	Users   map[string]UserInfo `json:"users,omitempty"` // welcome roster, keyed by id
 }
 
 // encode marshals a message to JSON. Marshalling this fixed struct can't fail,
