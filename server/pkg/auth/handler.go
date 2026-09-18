@@ -54,7 +54,7 @@ func (a *Auth) Session(w http.ResponseWriter, r *http.Request) {
 	if fresh, err := a.mint(); err == nil {
 		a.setCookie(w, fresh)
 	}
-	w.WriteHeader(http.StatusNoContent)
+	respond.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // Logout handles DELETE /session: delete the cookie.

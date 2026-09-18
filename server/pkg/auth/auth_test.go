@@ -79,8 +79,8 @@ func TestSessionAcceptsIssuedCookie(t *testing.T) {
 	sessReq.AddCookie(cookie)
 	a.Session(sessRec, sessReq)
 
-	if sessRec.Code != http.StatusNoContent {
-		t.Fatalf("valid cookie: got %d, want 204", sessRec.Code)
+	if sessRec.Code != http.StatusOK {
+		t.Fatalf("valid cookie: got %d, want 200", sessRec.Code)
 	}
 	// Sliding session should re-issue a fresh cookie.
 	if sessionCookie(sessRec.Result()) == nil {
