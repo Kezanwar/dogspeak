@@ -1,7 +1,7 @@
 package ws
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gorilla/websocket"
@@ -35,7 +35,7 @@ func Handler(hub *Hub, allowedOrigins []string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Println("ws upgrade:", err)
+			slog.Error("ws upgrade failed", "err", err)
 			return
 		}
 
@@ -43,6 +43,7 @@ func Handler(hub *Hub, allowedOrigins []string) http.HandlerFunc {
 		colour := r.URL.Query().Get("colour")
 
 		c := newClient(hub, conn, name, colour)
+		slog.Info("ws connected", "id", c.id, "remote", r.RemoteAddr)
 		go c.writePump()
 		c.readPump() // blocks on this goroutine until the client disconnects
 	}

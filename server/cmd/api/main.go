@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -15,6 +15,8 @@ import (
 )
 
 func main() {
+	setupLogger()
+
 	a := auth.New(auth.Config{
 		Password:     mustEnv("ROOM_PASSWORD"),
 		Secret:       []byte(mustEnv("SESSION_SECRET")),
@@ -25,34 +27,53 @@ func main() {
 
 	hub := ws.NewHub()
 
-	// One allowlist drives BOTH the CORS middleware (HTTP) and the WebSocket
-	// CheckOrigin — a single source of truth for "who may talk to us".
+	// One allowlist drives both the CORS middleware and the WS CheckOrigin.
 	origins := splitOrigins(os.Getenv("CORS_ORIGINS"))
 
 	r := mux.NewRouter()
-
-	// /session is a resource: POST = log in, GET = check/refresh, DELETE = log out.
 	r.HandleFunc("/session", a.Login).Methods(http.MethodPost)
 	r.HandleFunc("/session", a.Session).Methods(http.MethodGet)
 	r.HandleFunc("/session", a.Logout).Methods(http.MethodDelete)
-
-	// The WebSocket is gated by a valid session cookie AND an allowed origin.
 	r.Handle("/ws", a.Require(ws.Handler(hub, origins)))
 
-	// CORS wraps the whole router so preflight (OPTIONS) is answered before mux
-	// does method matching.
-	handler := middleware.Cors(origins)(r)
+	// CORS outermost (answers preflight before we'd log it); Logger wraps the router.
+	handler := middleware.Cors(origins)(middleware.Logger(r))
 
 	addr := ":" + port()
-	log.Println("dogspeak server listening on", addr)
-	log.Fatal(http.ListenAndServe(addr, handler))
+	slog.Info("dogspeak server starting", "addr", addr)
+	if err := http.ListenAndServe(addr, handler); err != nil {
+		slog.Error("server stopped", "err", err)
+		os.Exit(1)
+	}
+}
+
+// setupLogger configures the global slog logger from env: LOG_LEVEL
+// (debug|info|warn|error, default info) and LOG_FORMAT (text|json, default text).
+func setupLogger() {
+	level := slog.LevelInfo
+	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+
+	opts := &slog.HandlerOptions{Level: level}
+	var h slog.Handler = slog.NewTextHandler(os.Stdout, opts)
+	if strings.ToLower(os.Getenv("LOG_FORMAT")) == "json" {
+		h = slog.NewJSONHandler(os.Stdout, opts)
+	}
+	slog.SetDefault(slog.New(h))
 }
 
 // mustEnv returns the env var or exits — secrets must be set, never defaulted.
 func mustEnv(key string) string {
 	v := os.Getenv(key)
 	if v == "" {
-		log.Fatalf("missing required env var %s", key)
+		slog.Error("missing required env var", "key", key)
+		os.Exit(1)
 	}
 	return v
 }
@@ -65,8 +86,7 @@ func port() string {
 	return "8080"
 }
 
-// splitOrigins turns a comma-separated CORS_ORIGINS value into a clean list,
-// dropping blanks and surrounding whitespace.
+// splitOrigins turns a comma-separated CORS_ORIGINS value into a clean list.
 func splitOrigins(s string) []string {
 	var out []string
 	for _, p := range strings.Split(s, ",") {

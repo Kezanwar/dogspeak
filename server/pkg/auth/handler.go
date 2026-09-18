@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 )
 
@@ -21,6 +22,7 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !a.checkPassword(body.Password) {
+		slog.Warn("login failed", "remote", r.RemoteAddr)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -31,6 +33,7 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.setCookie(w, token)
+	slog.Info("login ok", "remote", r.RemoteAddr)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -97,6 +98,7 @@ func (c *Client) readPump() {
 		c.hub.remove(c)
 		c.hub.broadcastAll(c.id, encode(Message{Type: EventUserLeft, From: c.id}))
 		close(c.send)
+		slog.Info("ws disconnected", "id", c.id)
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)

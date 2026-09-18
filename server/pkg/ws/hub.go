@@ -1,6 +1,9 @@
 package ws
 
-import "sync"
+import (
+	"log/slog"
+	"sync"
+)
 
 // Hub is all the server state there is: a flat map of every connected client,
 // keyed by id. There is deliberately NO list of channels — a channel is just
@@ -46,6 +49,7 @@ func (h *Hub) changeChannel(c *Client, channel string) {
 	h.mu.Lock()
 	c.channel = channel
 	h.mu.Unlock()
+	slog.Debug("channel change", "id", c.id, "channel", channel)
 	h.broadcastAll(c.id, encode(Message{Type: EventUserChangeChannel, From: c.id, Channel: channel}))
 }
 
