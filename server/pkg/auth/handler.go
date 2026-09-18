@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+
+	"dogspeak-server/pkg/respond"
 )
 
 // loginRequest is the JSON body of POST /session.
@@ -17,19 +19,19 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	var body loginRequest
 	// Cap the body so a huge payload can't be read into memory.
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&body); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		respond.Error(w, http.StatusBadRequest, "bad request")
 		return
 	}
 
 	if !a.checkPassword(body.Password) {
 		slog.Warn("login failed", "remote", r.RemoteAddr)
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		respond.Error(w, http.StatusUnauthorized, "incorrect password")
 		return
 	}
 
 	token, err := a.mint()
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		respond.Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	a.setCookie(w, token)
@@ -44,7 +46,7 @@ func (a *Auth) Session(w http.ResponseWriter, r *http.Request) {
 	token := cookieToken(r)
 	if token == "" || !a.valid(token) {
 		a.clearCookie(w) // bin any stale cookie so the browser stops sending it
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		respond.Error(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 
@@ -68,7 +70,7 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := cookieToken(r)
 		if token == "" || !a.valid(token) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			respond.Error(w, http.StatusUnauthorized, "not authenticated")
 			return
 		}
 		next.ServeHTTP(w, r)
