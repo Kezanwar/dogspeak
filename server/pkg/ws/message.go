@@ -20,7 +20,22 @@ const (
 	EventPeerOffer     = "peer:offer"
 	EventPeerAnswer    = "peer:answer"
 	EventPeerCandidate = "peer:candidate"
+
+	// Text chat — channel-scoped, like signalling. Never in the lobby.
+	EventChatMessage = "chat:message" // C->S: just text. S->channel (incl. sender): the stamped message
+	EventChatHistory = "chat:history" // S->joiner only: that channel's recent messages
 )
+
+// ChatMessage is one chat line. The server snapshots the sender's name and
+// colour onto it, so history still renders right after they rename or leave.
+type ChatMessage struct {
+	ID     string `json:"id"`
+	From   string `json:"from"`
+	Name   string `json:"name"`
+	Colour string `json:"colour"`
+	Text   string `json:"text"`
+	TS     int64  `json:"ts"` // unix millis
+}
 
 // UserInfo is one person's public presence. In the welcome roster it's keyed by
 // id (the map key), so the id isn't repeated inside the value — mirroring how the
@@ -46,6 +61,25 @@ type Message struct {
 	Channel string              `json:"channel,omitempty"` // user:change_channel payload
 	Data    json.RawMessage     `json:"data,omitempty"`    // opaque: SDP / ICE, passed straight through
 	Users   map[string]UserInfo `json:"users,omitempty"`   // welcome roster, keyed by id
+	ID      string              `json:"id,omitempty"`      // chat:message id (server-generated)
+	Text    string              `json:"text,omitempty"`    // chat:message text
+	TS      int64               `json:"ts,omitempty"`      // chat:message time, unix millis
+}
+
+// historyMessage is the chat:history frame. It's its own type (not Message) so
+// `messages` is always present, as [] when the channel has no history yet.
+type historyMessage struct {
+	Type     string        `json:"type"`
+	Channel  string        `json:"channel"`
+	Messages []ChatMessage `json:"messages"`
+}
+
+// chatFrame builds the chat:message broadcast for one stored message.
+func chatFrame(channel string, cm ChatMessage) []byte {
+	return encode(Message{
+		Type: EventChatMessage, Channel: channel, ID: cm.ID, From: cm.From,
+		Name: cm.Name, Colour: cm.Colour, Text: cm.Text, TS: cm.TS,
+	})
 }
 
 // encode marshals a message to JSON. Marshalling this fixed struct can't fail,

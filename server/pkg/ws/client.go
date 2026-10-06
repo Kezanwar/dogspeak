@@ -14,7 +14,7 @@ const (
 	sendBuffer = 16
 
 	// Connection safety limits.
-	maxMessageSize = 8192             // bytes; an SDP offer is the biggest legit payload
+	maxMessageSize = 16384            // bytes; fits an SDP offer, or a max-length chat message of multi-byte chars
 	pongWait       = 60 * time.Second // no pong within this window => connection is dead
 	pingPeriod     = 50 * time.Second // ping this often; must be < pongWait
 	writeWait      = 10 * time.Second // max time allowed to write a single frame

@@ -29,9 +29,9 @@ const DashboardLayout: FC = () => {
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
-          <div className="bg-background text-foreground flex min-h-screen flex-col">
+          <div className="bg-background text-foreground flex h-svh flex-col">
             <DashboardHeader />
-            <main className="flex-1 overflow-y-auto p-4">
+            <main className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
               <Outlet />
             </main>
           </div>
