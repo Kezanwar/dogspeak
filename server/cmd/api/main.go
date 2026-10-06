@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/lmittmann/tint"
+	"github.com/mattn/go-isatty"
 
 	"dogspeak-server/pkg/auth"
 	"dogspeak-server/pkg/middleware"
@@ -53,6 +55,8 @@ func main() {
 
 // setupLogger configures the global slog logger from env: LOG_LEVEL
 // (debug|info|warn|error, default info) and LOG_FORMAT (text|json, default text).
+// Text is tint's dev format: dimmed timestamp first, level coloured, and plain
+// (no ANSI) when stdout isn't a terminal. JSON is untouched for prod.
 func setupLogger() {
 	level := slog.LevelInfo
 	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
@@ -64,12 +68,30 @@ func setupLogger() {
 		level = slog.LevelError
 	}
 
-	opts := &slog.HandlerOptions{Level: level}
-	var h slog.Handler = slog.NewTextHandler(os.Stdout, opts)
+	var h slog.Handler
 	if strings.ToLower(os.Getenv("LOG_FORMAT")) == "json" {
-		h = slog.NewJSONHandler(os.Stdout, opts)
+		h = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+	} else {
+		fd := os.Stdout.Fd()
+		h = tint.NewHandler(os.Stdout, &tint.Options{
+			Level:       level,
+			TimeFormat:  time.DateTime,
+			NoColor:     !isatty.IsTerminal(fd) && !isatty.IsCygwinTerminal(fd),
+			ReplaceAttr: colourDebugLevel,
+		})
 	}
 	slog.SetDefault(slog.New(h))
+}
+
+// colourDebugLevel gives DBG its own colour (bright cyan); tint leaves it
+// uncoloured by default, and INF/WRN/ERR are already green/yellow/red.
+func colourDebugLevel(groups []string, a slog.Attr) slog.Attr {
+	if len(groups) == 0 && a.Key == slog.LevelKey {
+		if lvl, ok := a.Value.Any().(slog.Level); ok && lvl < slog.LevelInfo {
+			return tint.Attr(14, a)
+		}
+	}
+	return a
 }
 
 // mustEnv returns the env var or exits — secrets must be set, never defaulted.

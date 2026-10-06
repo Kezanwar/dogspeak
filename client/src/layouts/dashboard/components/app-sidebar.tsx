@@ -37,7 +37,9 @@ const LobbyMembers = observer(() => {
   const ids = store.presence.membersInChannel("");
   if (ids.length === 0) {
     return (
-      <p className="text-muted-foreground px-2 text-xs">nobody hanging about</p>
+      <div className="text-muted-foreground mx-2 rounded-md border border-dashed px-3 py-2.5 text-center text-xs">
+        no one in the lobby right now
+      </div>
     );
   }
 

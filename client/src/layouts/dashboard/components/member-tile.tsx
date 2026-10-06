@@ -1,6 +1,38 @@
+import { LogOut, MoreHorizontal } from "lucide-react";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@app/components/ui/dropdown-menu";
 import store, { observer } from "@app/stores";
 import { cn } from "@app/lib/utils";
 import { isSpeaking } from "@app/lib/speaking";
+
+// Actions on your OWN tile. Only "leave channel" for now (mute/volume come with
+// audio), so it's only rendered while you're actually in a channel.
+const MyTileMenu = observer(() => {
+  const { presence } = store;
+  if (presence.myChannel === "") return null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label="member actions"
+        className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent data-[state=open]:bg-sidebar-accent focus-visible:ring-sidebar-ring ml-auto flex size-5 shrink-0 items-center justify-center rounded-md outline-none focus-visible:ring-2"
+      >
+        <MoreHorizontal className="size-3.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="right" align="start" className="min-w-36">
+        <DropdownMenuItem onSelect={() => presence.joinChannel("")}>
+          <LogOut />
+          leave channel
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+});
 
 type Props = {
   id: string;
@@ -37,6 +69,7 @@ const MemberTile = observer(({ id, speaking = isSpeaking(id) }: Props) => {
       >
         {user.name}
       </span>
+      {isMe && <MyTileMenu />}
     </li>
   );
 });
