@@ -31,9 +31,13 @@ func main() {
 	origins := splitOrigins(os.Getenv("CORS_ORIGINS"))
 
 	r := mux.NewRouter()
-	r.HandleFunc("/session", a.Login).Methods(http.MethodPost)
-	r.HandleFunc("/session", a.Session).Methods(http.MethodGet)
-	r.HandleFunc("/session", a.Logout).Methods(http.MethodDelete)
+
+	api := r.PathPrefix("/api").Subrouter()
+
+	api.HandleFunc("/session", a.Login).Methods(http.MethodPost)
+	api.HandleFunc("/session", a.Session).Methods(http.MethodGet)
+	api.HandleFunc("/session", a.Logout).Methods(http.MethodDelete)
+
 	r.Handle("/ws", a.Require(ws.Handler(hub, origins)))
 
 	// CORS outermost (answers preflight before we'd log it); Logger wraps the router.
