@@ -73,6 +73,10 @@ class PresenceStore {
       case EVENT.PeerCandidate:
         // signalling — handled by the audio layer, not presence
         break;
+      case EVENT.ChatMessage:
+      case EVENT.ChatHistory:
+        // chat — handled by ChatStore
+        break;
       default: {
         const _exhaustive: never = msg; // compile error if an event is unhandled
         return _exhaustive;
@@ -107,13 +111,18 @@ class PresenceStore {
 
   // ── lifecycle ──────────────────────────────────────────────────
   connect(name: string, colour: string) {
-    socket.onMessage(this.apply);
+    // Every frame goes to every store; each ignores the events it doesn't own.
+    socket.onMessage((msg) => {
+      this.apply(msg);
+      this.rootStore.chat.apply(msg);
+    });
     socket.connect({ name, colour });
   }
 
   disconnect() {
     socket.disconnect();
     this.reset();
+    this.rootStore.chat.reset();
   }
 
   reset = () => {

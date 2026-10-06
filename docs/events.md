@@ -7,7 +7,7 @@ this list.
 
 ## The two scopes
 
-Everything divides into two buckets, and the server treats them differently:
+Everything divides into buckets, and the server treats them differently:
 
 - **Presence** — who's online, their name/colour, and which channel they're in.
   This is **server-wide**: every delta is broadcast to _everyone connected_,
@@ -16,6 +16,8 @@ Everything divides into two buckets, and the server treats them differently:
   **channel-scoped**: the server only relays it between two peers who share the
   same (non-empty) channel. That's what forms an audio mesh _within_ a channel
   and never across channels.
+- **Chat** — text messages. Also **channel-scoped**: you only send and receive
+  chat for the channel you're in. There is no chat in the lobby.
 
 The server has **no list of channels**. A channel is just the string in each
 client's `channel` field (`""` = lobby). The three channels (General, Lounge,
@@ -27,7 +29,8 @@ _client_ chooses not to capture audio while in it.
 ```json
 { "type": "...", "to": "...", "from": "...",
   "name": "...", "colour": "...", "channel": "...",
-  "data": { ... }, "users": { "<id>": { ... } } }
+  "data": { ... }, "users": { "<id>": { ... } },
+  "id": "...", "text": "...", "ts": 0 }
 ```
 
 - `from` — sender id. **Stamped by the server**, never trusted from the client.
@@ -37,6 +40,10 @@ _client_ chooses not to capture audio while in it.
 - `users` — the roster, an object keyed by id, on `welcome` only. The id is the
   key, so it isn't repeated inside each value — mirroring the frontend's id-keyed
   observable map.
+- `id` / `text` / `ts` — chat fields (`ts` is unix millis), on `chat:message` only.
+
+Empty fields are **omitted** on the wire. In particular `channel: ""` (the lobby)
+never appears — treat a missing `channel` as `""`.
 
 ---
 
@@ -77,6 +84,34 @@ A `session:welcome` frame looks like this (`to` is your own id; `users` includes
 
 The server drops any of these whose `to` peer isn't in the sender's channel, so
 you can't accidentally signal across channels.
+
+---
+
+## Chat (channel-scoped)
+
+| Event          | Direction                    | Payload                                                    | Receiver does                                          |
+| -------------- | ---------------------------- | ---------------------------------------------------------- | ------------------------------------------------------ |
+| `chat:message` | C→S                          | `text`                                                     | —                                                      |
+| `chat:message` | S→channel (sender included)  | `channel`, `id`, `from`, `name`, `colour`, `text`, `ts`    | Append to that channel's messages.                     |
+| `chat:history` | S→joiner only                | `channel`, `messages: ChatMessage[]` (always present, may be `[]`) | Replace that channel's messages.             |
+
+`ChatMessage` is `{ id, from, name, colour, text, ts }`:
+
+- `id` — short server-generated id (use it as the React key).
+- `name` / `colour` — **snapshotted** by the server when the message is sent, so
+  history renders correctly after the sender renames or leaves.
+- `ts` — unix millis, stamped by the server.
+
+Rules:
+
+- The client sends **only** `text`. The server stamps everything else.
+- The sender gets their own message back via the channel broadcast — **don't**
+  add it optimistically.
+- The server trims `text`, drops empty/whitespace-only messages, caps it at 2000
+  characters, and ignores chat from anyone in the lobby.
+- Each channel keeps its last **30** messages in memory (lost on restart, kept
+  when the channel empties). Joining a non-lobby channel sends you `chat:history`
+  right after the `user:change_channel` broadcast.
 
 ---
 

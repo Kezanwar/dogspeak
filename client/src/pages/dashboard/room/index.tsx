@@ -1,7 +1,7 @@
-// type Props = {};
+import ChatPanel from "./components/chat-panel";
 
 const Room = () => {
-  return <div>room</div>;
+  return <ChatPanel />;
 };
 
 export default Room;

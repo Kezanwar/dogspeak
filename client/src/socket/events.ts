@@ -17,6 +17,8 @@ export const EVENT = {
   PeerOffer: "peer:offer",
   PeerAnswer: "peer:answer",
   PeerCandidate: "peer:candidate",
+  ChatMessage: "chat:message",
+  ChatHistory: "chat:history",
 } as const;
 
 export type EventType = (typeof EVENT)[keyof typeof EVENT];
@@ -99,6 +101,29 @@ export interface PeerCandidateMessage {
   data: RTCIceCandidateInit;
 }
 
+/** One chat line. name + colour are snapshotted by the server at send time. */
+export interface ChatMessage {
+  id: string;
+  from: string;
+  name: string;
+  colour: string;
+  text: string;
+  ts: number; // unix millis
+}
+
+/** chat:message — a message in your channel (your own included, via echo). */
+export interface ChatMessageMessage extends ChatMessage {
+  type: typeof EVENT.ChatMessage;
+  channel: string;
+}
+
+/** chat:history — the channel's recent messages, sent to you on joining it. */
+export interface ChatHistoryMessage {
+  type: typeof EVENT.ChatHistory;
+  channel: string;
+  messages: ChatMessage[];
+}
+
 /** Everything the server can send. Narrow on `.type`. */
 export type ServerMessage =
   | WelcomeMessage
@@ -109,7 +134,9 @@ export type ServerMessage =
   | UserChangeColourMessage
   | PeerOfferMessage
   | PeerAnswerMessage
-  | PeerCandidateMessage;
+  | PeerCandidateMessage
+  | ChatMessageMessage
+  | ChatHistoryMessage;
 
 // ─── Client → server (outgoing) ─────────────────────────────────────────────
 // No `from` — the server stamps it. Presence changes carry just their payload.
@@ -143,6 +170,12 @@ export interface PeerCandidateOut {
   data: RTCIceCandidateInit;
 }
 
+/** Chat: just the text — the server stamps sender, channel, id and time. */
+export interface ChatMessageOut {
+  type: typeof EVENT.ChatMessage;
+  text: string;
+}
+
 /** Everything we can send. */
 export type ClientMessage =
   | ChangeChannelOut
@@ -150,4 +183,5 @@ export type ClientMessage =
   | ChangeColourOut
   | PeerOfferOut
   | PeerAnswerOut
-  | PeerCandidateOut;
+  | PeerCandidateOut
+  | ChatMessageOut;
