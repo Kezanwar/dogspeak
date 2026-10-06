@@ -5,14 +5,36 @@ import { MessagesSquare } from "lucide-react";
 import { Input } from "@app/components/ui/input";
 import { CHANNELS } from "@app/config/channels";
 import type { ChatMessage } from "@app/socket/events";
+import { contrastingShade } from "@app/lib/colour";
+import { cn } from "@app/lib/utils";
 import store, { observer } from "@app/stores";
 
 const MAX_CHAT_LENGTH = 2000; // mirrors the server's cap
 
-const MessageRow = ({ message }: { message: ChatMessage }) => (
-  <li className="flex flex-col gap-0.5 px-1 py-1.5">
-    <div className="flex items-baseline gap-2">
-      <span className="text-sm font-medium" style={{ color: message.colour }}>
+type MessageRowProps = { message: ChatMessage; isMine: boolean };
+
+// Own messages sit on the right, everyone else's on the left. The name chip
+// matches the sender's avatar: their colour, with a readable same-hue shade.
+const MessageRow = ({ message, isMine }: MessageRowProps) => (
+  <li
+    className={cn(
+      "flex max-w-[75%] flex-col gap-1 px-1 py-1.5",
+      isMine ? "items-end self-end text-right" : "items-start self-start",
+    )}
+  >
+    <div
+      className={cn(
+        "flex items-center gap-2",
+        isMine && "flex-row-reverse", // chip on the outer edge
+      )}
+    >
+      <span
+        className="rounded-full px-2 py-0.5 text-xs leading-tight font-medium"
+        style={{
+          backgroundColor: message.colour,
+          color: contrastingShade(message.colour),
+        }}
+      >
         {message.name}
       </span>
       <time
@@ -64,7 +86,11 @@ const ChatPanel = observer(() => {
         ) : (
           <ul className="mt-auto flex flex-col pb-2">
             {messages.map((m) => (
-              <MessageRow key={m.id} message={m} />
+              <MessageRow
+                key={m.id}
+                message={m}
+                isMine={m.from === presence.myId}
+              />
             ))}
           </ul>
         )}
