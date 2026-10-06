@@ -21,7 +21,7 @@ type MessageRowProps = { message: ChatMessage; isMine: boolean };
 const MessageRow = ({ message, isMine }: MessageRowProps) => (
   <li
     className={cn(
-      "bg-muted my-1 flex max-w-[50%] min-w-0 flex-col gap-1 rounded-2xl px-3 py-2 lg:max-w-[33%]",
+      "bg-muted my-1 flex max-w-[50%] min-w-0 flex-col gap-2 rounded-2xl px-3 py-3 lg:max-w-[33%]",
       isMine
         ? "self-end rounded-br-md" // tail corner toward the sender's side
         : "self-start rounded-bl-md",
