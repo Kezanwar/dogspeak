@@ -13,6 +13,8 @@ import {
 import { Input } from "@app/components/ui/input";
 import { Label } from "@app/components/ui/label";
 import { cn } from "@app/lib/utils";
+import { contrastingShade } from "@app/lib/colour";
+import ColourAvatar from "@app/components/colour-avatar";
 import store from "@app/stores";
 import { NAME_MAX_LENGTH, PROFILE_COLOURS } from "@app/stores/profile";
 
@@ -55,12 +57,11 @@ const ProfileForm = ({ onDone }: { onDone: () => void }) => {
       </DialogHeader>
 
       <div className="flex items-center gap-3">
-        <span
-          className="flex size-10 shrink-0 items-center justify-center rounded-lg text-base font-medium text-white"
-          style={{ backgroundColor: colour }}
-        >
-          {(trimmed.charAt(0) || "?").toUpperCase()}
-        </span>
+        <ColourAvatar
+          name={trimmed}
+          colour={colour}
+          className="size-10 rounded-lg text-base"
+        />
         <div className="grid flex-1 gap-1.5">
           <Label htmlFor="profile-name">name</Label>
           <Input
@@ -87,10 +88,10 @@ const ProfileForm = ({ onDone }: { onDone: () => void }) => {
                 aria-pressed={selected}
                 onClick={() => setColour(c)}
                 className={cn(
-                  "flex size-8 items-center justify-center rounded-full text-white transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+                  "flex size-8 items-center justify-center rounded-full transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
                   selected && "ring-foreground ring-2 ring-offset-2",
                 )}
-                style={{ backgroundColor: c }}
+                style={{ backgroundColor: c, color: contrastingShade(c) }}
               >
                 {selected && <Check className="size-4" />}
               </button>

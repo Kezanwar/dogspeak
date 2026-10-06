@@ -56,7 +56,9 @@ const ChatPanel = observer(() => {
     <section className="flex min-h-0 flex-1 flex-col">
       {/* Flex column + mt-auto on the content: messages hug the bottom and
           grow upward, and the container still scrolls up to older ones. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
+      {/* Top ~2rem fades to transparent via a mask (no colour, so it's
+          theme-proof); the bottom stays crisp. Masks don't affect events. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pt-8 [mask-image:linear-gradient(to_bottom,transparent,black_2rem,black_100%)] [-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2rem,black_100%)]">
         {messages.length === 0 ? (
           <EmptyState text={`no messages in ${label} yet`} />
         ) : (
