@@ -118,16 +118,27 @@ Rules:
 ## Mesh rules (frontend)
 
 The server never tells you who to connect to — you derive it from the roster
-you already hold. Two rules keep it glare-free:
+you already hold. Audio only runs in channels with audio (`general`, `lounge`);
+in `afk` and the lobby there's no mic and no peer connections.
 
-1. **When you change channel, YOU offer to everyone already in that channel.**
-   Filter your roster to peers with the same channel, create a `peer:offer` to each.
-2. **When someone else's `user:change_channel` lands you in the same channel, wait.**
-   Don't offer to them — they'll offer to you (rule 1). Just prepare to answer.
+**Who offers — by id, not by who joined last.** For every pair of peers that
+share an audio channel, the one with the lexicographically **smaller id**
+creates the `peer:offer`; the larger id never offers, it waits and answers.
+Both sides derive the same answer from the ids, so two offers can never cross
+("glare"), whichever order people joined in.
 
-Leaving/switching a channel: tear down every peer connection for that channel,
-then apply rule 1 for the new one. A `user:left` or a `user:change_channel` that
-moves someone out of your channel is your cue to close that peer connection.
+1. Whenever your channel or its member list changes, work out the peers you
+   should be connected to: everyone else in your audio channel.
+2. For each new peer, create the `RTCPeerConnection` up front (mic track added,
+   ICE/track handlers wired). If `myId < theirId`, send them a `peer:offer`;
+   otherwise wait for theirs and reply with a `peer:answer`.
+3. ICE candidates (`peer:candidate`) can arrive before the remote description is
+   set — buffer them per peer and add them once it is.
+4. Close the connection for anyone no longer in your channel (`user:left`, or a
+   `user:change_channel` that moves them out).
+
+Leaving/switching a channel: close every peer connection and release the mic,
+then (if the new channel has audio) re-acquire it and apply the rules above.
 
 **AFK / no audio:** joining `afk` is a normal `user:change_channel`; the client
 just skips `getUserMedia` and opens no peer connections. You appear present, silent.
