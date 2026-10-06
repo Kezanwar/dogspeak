@@ -13,23 +13,24 @@ const MAX_CHAT_LENGTH = 2000; // mirrors the server's cap
 
 type MessageRowProps = { message: ChatMessage; isMine: boolean };
 
-// Own messages sit on the right, everyone else's on the left. The name chip
-// matches the sender's avatar: their colour, with a readable same-hue shade.
+// Each message is one bubble: a header row (name chip + timestamp) with the
+// text beneath. Own messages sit on the right, everyone else's on the left.
+// The surface is the theme's muted token so it sits just off the page in light
+// and dark. Short messages hug their content (shrink-to-fit via self-start/end);
+// long ones wrap at ~50% of the panel, ~a third from lg up.
 const MessageRow = ({ message, isMine }: MessageRowProps) => (
   <li
     className={cn(
-      "flex max-w-[75%] flex-col gap-1 px-1 py-1.5",
-      isMine ? "items-end self-end text-right" : "items-start self-start",
+      "bg-muted my-1 flex max-w-[50%] min-w-0 flex-col gap-1 rounded-2xl px-3 py-2 lg:max-w-[33%]",
+      isMine
+        ? "self-end rounded-br-md" // tail corner toward the sender's side
+        : "self-start rounded-bl-md",
     )}
   >
-    <div
-      className={cn(
-        "flex items-center gap-2",
-        isMine && "flex-row-reverse", // chip on the outer edge
-      )}
-    >
+    <div className="flex min-w-0 items-center gap-2">
+      {/* Chip matches the sender's avatar: their colour, readable same-hue shade. */}
       <span
-        className="rounded-full px-2 py-0.5 text-xs leading-tight font-semibold"
+        className="truncate rounded-full px-2 py-0.5 text-xs leading-tight font-semibold"
         style={{
           backgroundColor: message.colour,
           color: contrastingShade(message.colour),
@@ -38,22 +39,13 @@ const MessageRow = ({ message, isMine }: MessageRowProps) => (
         {message.name}
       </span>
       <time
-        className="text-muted-foreground text-[11px]"
+        className="text-muted-foreground shrink-0 text-[11px]"
         dateTime={new Date(message.ts).toISOString()}
       >
         {format(new Date(message.ts), "HH:mm dd/MM/yyyy")}
       </time>
     </div>
-    {/* Bubble: theme surface token so it sits just off the page in light and
-        dark. w-fit hugs the text; the row's max-width caps long messages. */}
-    <p
-      className={cn(
-        "bg-muted w-fit max-w-full rounded-2xl px-3 py-2 text-left text-sm break-words whitespace-pre-wrap",
-        isMine ? "rounded-br-md" : "rounded-bl-md", // tail corner toward the sender's side
-      )}
-    >
-      {message.text}
-    </p>
+    <p className="text-sm break-words whitespace-pre-wrap">{message.text}</p>
   </li>
 );
 
