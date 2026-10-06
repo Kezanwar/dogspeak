@@ -44,24 +44,23 @@ const ChatPanel = observer(() => {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (inLobby || !draft.trim()) return;
+    if (!draft.trim()) return;
     chat.send(draft);
     setDraft("");
   };
 
-  return (
-    <section className="flex min-h-0 flex-1 flex-col rounded-lg border">
-      <header className="border-b px-4 py-2.5 text-sm font-medium">
-        {inLobby ? "chat" : `# ${label}`}
-      </header>
+  // Lobby: no chat at all — just the prompt to join somewhere.
+  if (inLobby) return <EmptyState text="join a channel to chat" />;
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-        {inLobby ? (
-          <EmptyState text="join a channel to chat" />
-        ) : messages.length === 0 ? (
+  return (
+    <section className="flex min-h-0 flex-1 flex-col">
+      {/* Flex column + mt-auto on the content: messages hug the bottom and
+          grow upward, and the container still scrolls up to older ones. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
+        {messages.length === 0 ? (
           <EmptyState text={`no messages in ${label} yet`} />
         ) : (
-          <ul className="flex flex-col">
+          <ul className="mt-auto flex flex-col pb-2">
             {messages.map((m) => (
               <MessageRow key={m.id} message={m} />
             ))}
@@ -70,13 +69,12 @@ const ChatPanel = observer(() => {
         <div ref={bottomRef} />
       </div>
 
-      <form onSubmit={onSubmit} className="border-t p-3">
+      <form onSubmit={onSubmit} className="pt-2">
         <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          disabled={inLobby}
           maxLength={MAX_CHAT_LENGTH}
-          placeholder={inLobby ? "" : `message ${label}`}
+          placeholder={`message ${label}`}
           aria-label="chat message"
           autoComplete="off"
         />
@@ -86,7 +84,7 @@ const ChatPanel = observer(() => {
 });
 
 const EmptyState = ({ text }: { text: string }) => (
-  <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-2 text-sm">
+  <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 text-sm">
     <MessagesSquare className="size-6 opacity-60" />
     {text}
   </div>
