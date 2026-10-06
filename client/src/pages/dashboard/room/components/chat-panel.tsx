@@ -85,7 +85,7 @@ const ChatPanel = observer(() => {
         {messages.length === 0 ? (
           <EmptyState text={`no messages in ${label} yet`} />
         ) : (
-          <ul className="mt-auto flex flex-col pb-2">
+          <ul className="mt-auto flex flex-col pb-2 gap-1">
             {messages.map((m) => (
               <MessageRow
                 key={m.id}
