@@ -11,6 +11,7 @@ class SocketClient {
   #params: { name: string; colour: string } | null = null;
   #intentional = false;
   #retry = 0;
+  #retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Register the handler that routes incoming messages into the store. */
   onMessage(fn: MessageHandler) {
@@ -25,8 +26,14 @@ class SocketClient {
   /** Open the socket. The session cookie rides the handshake automatically. */
   connect(p: { name: string; colour: string }) {
     this.#params = p;
+    this.#retry = 0;
     this.#intentional = false;
     this.#open();
+  }
+
+  /** Keep reconnect params current so a reconnect doesn't revert a rename. */
+  updateParams(p: Partial<{ name: string; colour: string }>) {
+    if (this.#params) this.#params = { ...this.#params, ...p };
   }
 
   /** Send a typed message. Dropped silently if the socket isn't open. */
@@ -39,13 +46,16 @@ class SocketClient {
   /** Intentional close (logout) — suppresses reconnect. */
   disconnect() {
     this.#intentional = true;
+    if (this.#retryTimer) clearTimeout(this.#retryTimer);
+    this.#retryTimer = null;
     this.#ws?.close();
     this.#ws = null;
   }
 
   // arrow field so setTimeout(this.#open, …) keeps `this`
   #open = () => {
-    if (!this.#params) return;
+    this.#retryTimer = null;
+    if (!this.#params || this.#intentional) return;
 
     const existing = this.#ws;
     if (
@@ -61,12 +71,17 @@ class SocketClient {
     const ws = new WebSocket(`${WS_URL}/ws?${qs.toString()}`);
     this.#ws = ws;
 
+    // Every handler ignores a socket that's no longer current — e.g. one closed
+    // by disconnect() under StrictMode's mount/unmount/mount — so a stale close
+    // can't clobber the live socket or schedule a duplicate reconnect.
     ws.onopen = () => {
+      if (this.#ws !== ws) return;
       this.#retry = 0;
       this.#statusHandler?.(true);
     };
 
     ws.onmessage = (e) => {
+      if (this.#ws !== ws) return;
       try {
         this.#messageHandler?.(JSON.parse(e.data) as ServerMessage);
       } catch {
@@ -75,12 +90,13 @@ class SocketClient {
     };
 
     ws.onclose = () => {
+      if (this.#ws !== ws) return;
       this.#ws = null;
       this.#statusHandler?.(false);
       if (!this.#intentional) {
         const delay = Math.min(1000 * 2 ** this.#retry, 10000); // backoff, capped 10s
         this.#retry += 1;
-        setTimeout(this.#open, delay);
+        this.#retryTimer = setTimeout(this.#open, delay);
       }
     };
 

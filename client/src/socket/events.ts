@@ -37,13 +37,17 @@ export interface WelcomeMessage {
   users: Record<string, UserInfo>; // id-keyed; includes you
 }
 
+// NB: the server's envelope tags `channel` with omitempty, so the lobby ("")
+// arrives as a MISSING field on user:joined / user:change_channel. Treat
+// `undefined` as "" when applying these.
+
 /** user:joined — someone connected (lands in the lobby). */
 export interface UserJoinedMessage {
   type: typeof EVENT.UserJoined;
   from: string;
   name: string;
   colour: string;
-  channel: string;
+  channel?: string;
 }
 
 /** user:left — someone disconnected. */
@@ -56,7 +60,7 @@ export interface UserLeftMessage {
 export interface UserChangeChannelMessage {
   type: typeof EVENT.UserChangeChannel;
   from: string;
-  channel: string;
+  channel?: string;
 }
 
 /** user:change_name — someone renamed. */

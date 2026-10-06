@@ -1,5 +1,4 @@
 import * as React from "react";
-import { Hash, Coffee, Moon } from "lucide-react";
 
 import {
   Sidebar,
@@ -14,6 +13,70 @@ import {
   SidebarRail,
 } from "@app/components/ui/sidebar";
 import NavUser from "@app/layouts/dashboard/components/nav-user";
+import MemberTile from "@app/layouts/dashboard/components/member-tile";
+import { CHANNELS, type Channel } from "@app/config/channels";
+import store, { observer } from "@app/stores";
+
+// Only the member list re-renders on roster changes; each tile observes its
+// own entry, so a single member's update doesn't repaint their neighbours.
+const ChannelMembers = observer(({ channelId }: { channelId: string }) => {
+  const ids = store.presence.membersInChannel(channelId);
+  if (ids.length === 0) return null;
+
+  return (
+    <ul className="mt-0.5 mb-1 ml-6 flex flex-col gap-0.5 border-l pl-1">
+      {ids.map((id) => (
+        <MemberTile key={id} id={id} />
+      ))}
+    </ul>
+  );
+});
+
+// Everyone connected but not in a channel ("" = lobby).
+const LobbyMembers = observer(() => {
+  const ids = store.presence.membersInChannel("");
+  if (ids.length === 0) {
+    return (
+      <p className="text-muted-foreground px-2 text-xs">nobody hanging about</p>
+    );
+  }
+
+  return (
+    <ul className="flex flex-col gap-0.5">
+      {ids.map((id) => (
+        <MemberTile key={id} id={id} />
+      ))}
+    </ul>
+  );
+});
+
+const ChannelItem = observer(({ channel }: { channel: Channel }) => {
+  const { presence } = store;
+  const active = presence.myChannel === channel.id;
+  const Icon = channel.icon;
+
+  const join = () => {
+    if (!active) presence.joinChannel(channel.id);
+  };
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        isActive={active}
+        tooltip={`double-click to join ${channel.label}`}
+        onDoubleClick={join}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") join();
+        }}
+        className="select-none"
+      >
+        <Icon />
+        <span>{channel.label}</span>
+      </SidebarMenuButton>
+      <ChannelMembers channelId={channel.id} />
+    </SidebarMenuItem>
+  );
+});
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
@@ -28,25 +91,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarGroup>
           <SidebarGroupLabel>channels</SidebarGroupLabel>
           <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton tooltip="General">
-                <Hash />
-                <span>general</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton tooltip="Lounge">
-                <Coffee />
-                <span>lounge</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton tooltip="AFK">
-                <Moon />
-                <span>afk</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
+            {CHANNELS.map((channel) => (
+              <ChannelItem key={channel.id} channel={channel} />
+            ))}
           </SidebarMenu>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>lobby</SidebarGroupLabel>
+          <LobbyMembers />
         </SidebarGroup>
       </SidebarContent>
 

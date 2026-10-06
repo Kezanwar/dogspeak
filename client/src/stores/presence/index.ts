@@ -53,14 +53,14 @@ class PresenceStore {
         this.users.set(msg.from, {
           name: msg.name,
           colour: msg.colour,
-          channel: msg.channel,
+          channel: msg.channel ?? "", // omitted on the wire when "" (lobby)
         });
         break;
       case EVENT.UserLeft:
         this.users.delete(msg.from);
         break;
       case EVENT.UserChangeChannel:
-        this.patch(msg.from, { channel: msg.channel });
+        this.patch(msg.from, { channel: msg.channel ?? "" });
         break;
       case EVENT.UserChangeName:
         this.patch(msg.from, { name: msg.name });
@@ -95,11 +95,13 @@ class PresenceStore {
 
   setName = (name: string) => {
     this.patch(this.myId, { name });
+    socket.updateParams({ name });
     socket.send({ type: EVENT.UserChangeName, name });
   };
 
   setColour = (colour: string) => {
     this.patch(this.myId, { colour });
+    socket.updateParams({ colour });
     socket.send({ type: EVENT.UserChangeColour, colour });
   };
 

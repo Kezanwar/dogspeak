@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { useNavigate } from "react-router";
 
@@ -8,19 +9,16 @@ import {
   SidebarMenuItem,
 } from "@app/components/ui/sidebar";
 import store, { observer } from "@app/stores";
-
-// TODO: name + colour will come from a small "me" store (localStorage-backed),
-// editable via the profile modal, and emitted over the socket on change.
-const me = { name: "Kez Anwar", colour: "#8a8a8a" };
+import ProfileModal from "@app/layouts/dashboard/components/profile-modal";
 
 const NavUser = observer(() => {
   const nav = useNavigate();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const me = store.profile;
 
   const initial = me.name.charAt(0).toUpperCase();
 
-  const openProfile = () => {
-    // TODO: open the name / colour modal
-  };
+  const openProfile = () => setProfileOpen(true);
 
   const onLogout = async () => {
     await store.auth.logout();
@@ -57,6 +55,7 @@ const NavUser = observer(() => {
           <LogOut className="size-4" />
         </SidebarMenuButton>
       </SidebarMenuItem>
+      <ProfileModal open={profileOpen} onOpenChange={setProfileOpen} />
     </SidebarMenu>
   );
 });
