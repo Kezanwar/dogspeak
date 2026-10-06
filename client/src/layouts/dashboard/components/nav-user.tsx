@@ -2,7 +2,7 @@ import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { useNavigate } from "react-router";
 
-import { Avatar, AvatarFallback } from "@app/components/ui/avatar";
+import ColourAvatar from "@app/components/colour-avatar";
 import {
   SidebarMenu,
   SidebarMenuButton,
@@ -15,8 +15,6 @@ const NavUser = observer(() => {
   const nav = useNavigate();
   const [profileOpen, setProfileOpen] = useState(false);
   const me = store.profile;
-
-  const initial = me.name.charAt(0).toUpperCase();
 
   const openProfile = () => setProfileOpen(true);
 
@@ -34,14 +32,11 @@ const NavUser = observer(() => {
           className="flex-1"
           tooltip="edit profile"
         >
-          <Avatar className="h-8 w-8 rounded-lg">
-            <AvatarFallback
-              className="rounded-lg text-white"
-              style={{ backgroundColor: me.colour }}
-            >
-              {initial}
-            </AvatarFallback>
-          </Avatar>
+          <ColourAvatar
+            name={me.name}
+            colour={me.colour}
+            className="size-8 rounded-lg text-sm"
+          />
           <div className="grid flex-1 text-left text-sm leading-tight">
             <span className="truncate font-medium">{me.name}</span>
           </div>

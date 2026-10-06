@@ -6,6 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@app/components/ui/dropdown-menu";
+import ColourAvatar from "@app/components/colour-avatar";
 import store, { observer } from "@app/stores";
 import { cn } from "@app/lib/utils";
 import { isSpeaking } from "@app/lib/speaking";
@@ -49,18 +50,17 @@ const MemberTile = observer(({ id, speaking = isSpeaking(id) }: Props) => {
 
   return (
     <li className="flex items-center gap-2 rounded-md px-2 py-1">
-      <span
-        className="flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-medium text-white transition-shadow duration-150"
+      <ColourAvatar
+        name={user.name}
+        colour={user.colour}
+        className="size-6 rounded-full text-[11px] transition-shadow duration-150"
         style={{
-          backgroundColor: user.colour,
           // ring (with a sidebar-coloured gap) + soft glow in the member's colour
           boxShadow: speaking
             ? `0 0 0 2px var(--sidebar), 0 0 0 4px ${user.colour}, 0 0 12px 4px ${user.colour}`
             : undefined,
         }}
-      >
-        {user.name.charAt(0).toUpperCase()}
-      </span>
+      />
       <span
         className={cn(
           "truncate text-xs",
