@@ -9,7 +9,7 @@ export type ErrorObject = {
 const genericErrorMsg = "Something went wrong";
 
 const axiosInstance = axios.create({
-  baseURL: BASE_URL,
+  baseURL: `${BASE_URL}/api`,
   withCredentials: true, // send + receive the httpOnly session cookie
   headers: {
     "Content-Type": "application/json",
