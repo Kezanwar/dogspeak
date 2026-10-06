@@ -16,7 +16,7 @@ const ColourAvatar = ({ name, colour, className, style }: Props) => (
   <span
     aria-hidden
     className={cn(
-      "flex shrink-0 items-center justify-center font-medium select-none",
+      "flex shrink-0 items-center justify-center font-semibold select-none",
       className,
     )}
     style={{ backgroundColor: colour, color: contrastingShade(colour), ...style }}

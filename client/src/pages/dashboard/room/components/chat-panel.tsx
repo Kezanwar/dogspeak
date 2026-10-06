@@ -29,7 +29,7 @@ const MessageRow = ({ message, isMine }: MessageRowProps) => (
       )}
     >
       <span
-        className="rounded-full px-2 py-0.5 text-xs leading-tight font-medium"
+        className="rounded-full px-2 py-0.5 text-xs leading-tight font-semibold"
         style={{
           backgroundColor: message.colour,
           color: contrastingShade(message.colour),
@@ -44,7 +44,16 @@ const MessageRow = ({ message, isMine }: MessageRowProps) => (
         {format(new Date(message.ts), "HH:mm dd/MM/yyyy")}
       </time>
     </div>
-    <p className="text-sm break-words whitespace-pre-wrap">{message.text}</p>
+    {/* Bubble: theme surface token so it sits just off the page in light and
+        dark. w-fit hugs the text; the row's max-width caps long messages. */}
+    <p
+      className={cn(
+        "bg-muted w-fit max-w-full rounded-2xl px-3 py-2 text-left text-sm break-words whitespace-pre-wrap",
+        isMine ? "rounded-br-md" : "rounded-bl-md", // tail corner toward the sender's side
+      )}
+    >
+      {message.text}
+    </p>
   </li>
 );
 
