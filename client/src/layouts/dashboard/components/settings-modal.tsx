@@ -16,6 +16,7 @@ import { cn } from "@app/lib/utils";
 import { contrastingShade } from "@app/lib/colour";
 import ColourAvatar from "@app/components/colour-avatar";
 import MicPicker from "@app/layouts/dashboard/components/mic-picker";
+import VolumeSettings from "@app/layouts/dashboard/components/volume-settings";
 import store from "@app/stores";
 import { NAME_MAX_LENGTH, PROFILE_COLOURS } from "@app/stores/profile";
 
@@ -64,9 +65,9 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
           className="size-10 rounded-lg text-base"
         />
         <div className="grid flex-1 gap-1.5">
-          <Label htmlFor="profile-name">name</Label>
           <Input
             id="profile-name"
+            aria-label="name"
             value={name}
             maxLength={NAME_MAX_LENGTH}
             autoFocus
@@ -102,6 +103,7 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
       </div>
 
       <MicPicker />
+      <VolumeSettings />
 
       <DialogFooter>
         <Button type="button" variant="ghost" onClick={onDone}>

@@ -28,6 +28,7 @@ type Client struct {
 	name    string
 	colour  string
 	channel string
+	muted   bool // self-muted mic; a fresh connection starts unmuted
 	conn    *websocket.Conn
 	send    chan []byte
 	hub     *Hub

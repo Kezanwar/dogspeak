@@ -1,6 +1,6 @@
-import { reaction } from "mobx";
+import { comparer, reaction } from "mobx";
 
-import { CHANNELS } from "@app/config/channels";
+import { isAudioChannel } from "@app/config/channels";
 import type { ServerMessage } from "@app/socket/events";
 import { EVENT } from "@app/socket/events";
 import { socket } from "@app/socket/socket";
@@ -30,9 +30,6 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
 ];
-
-const isAudioChannel = (channel: string) =>
-  CHANNELS.some((c) => c.id === channel && c.hasAudio);
 
 // VAD tuning. RMS of the time-domain signal (-1..1); speech is ~0.03-0.2.
 const VAD_THRESHOLD = 0.03;
@@ -93,7 +90,18 @@ class AudioManager {
   #channel = ""; // the audio channel the mesh is currently built for ("" = none)
   #desired = new Set<string>(); // peer ids I should be connected to
   #peers = new Map<string, Peer>();
+  // Capture chain, on the shared AudioContext:
+  //   raw mic → #micSource → #micGainNode (mic volume) → #micDest
+  // #localStream is #micDest's stream: the OUTGOING track every peer gets and
+  // what my VAD analyser reads. Gain + destination live for the whole channel
+  // session; switching device only swaps #micSource, so the outgoing track
+  // (and its enabled=false self-mute) never changes and peers need nothing.
+  #rawStream: MediaStream | null = null;
+  #micSource: MediaStreamAudioSourceNode | null = null;
+  #micGainNode: GainNode | null = null;
+  #micDest: MediaStreamAudioDestinationNode | null = null;
   #localStream: MediaStream | null = null;
+  #selfMuted = false;
   // Settles (never rejects) once the mic attempt for this channel is done.
   #micReady: Promise<void> | null = null;
   // Bumped on every teardown so stale async work can tell it's been superseded.
@@ -144,10 +152,17 @@ class AudioManager {
     this.#store?.clearSpeaking();
     this.#store?.setMicBlocked(false); // only meaningful inside an audio channel
     this.#store?.setActiveMic(null);
-    this.#localStream?.getTracks().forEach((t) => {
+    this.#rawStream?.getTracks().forEach((t) => {
       t.onended = null;
-      t.stop();
+      t.stop(); // release the mic
     });
+    this.#localStream?.getTracks().forEach((t) => t.stop());
+    this.#micSource?.disconnect();
+    this.#micGainNode?.disconnect();
+    this.#rawStream = null;
+    this.#micSource = null;
+    this.#micGainNode = null;
+    this.#micDest = null;
     this.#localStream = null;
     this.#micReady = null;
     this.#desired.clear();
@@ -195,7 +210,7 @@ class AudioManager {
   async requestPermission(): Promise<boolean> {
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (s !== this.#localStream) s.getTracks().forEach((t) => t.stop());
+      s.getTracks().forEach((t) => t.stop()); // just a permission probe
       await this.refreshDevices();
       return true;
     } catch (err) {
@@ -216,6 +231,44 @@ class AudioManager {
       return;
     }
     await this.#switchMic(deviceId || undefined);
+  }
+
+  /**
+   * Apply self-mute (driven by presence via startAudio's reaction). A hard
+   * mute — the outgoing track is disabled, not gain 0 — and my own glow is
+   * forced off explicitly rather than trusting the analyser to read silence.
+   */
+  setSelfMuted(muted: boolean) {
+    this.#selfMuted = muted;
+    this.#localStream?.getAudioTracks().forEach((t) => (t.enabled = !muted));
+    if (muted && this.#myId) {
+      const m = this.#monitors.get(this.#myId);
+      if (m) m.speaking = false;
+      this.#store?.setSpeaking(this.#myId, false);
+    }
+  }
+
+  /** Live mic volume (0..2) on the outgoing chain. */
+  setMicGain(gain: number) {
+    if (this.#micGainNode && this.#ctx) {
+      this.#micGainNode.gain.setTargetAtTime(gain, this.#ctx.currentTime, 0.02);
+    }
+  }
+
+  /** Re-apply local mute + volume (per-person × master) to every <audio>. */
+  applyPeerAudio() {
+    for (const [id, peer] of this.#peers) this.#applyPeerAudio(id, peer);
+  }
+
+  #applyPeerAudio(id: string, peer: Peer) {
+    const el = peer.audio;
+    const store = this.#store;
+    if (!el || !store) return;
+    el.muted = store.isLocallyMuted(id); // local only, never broadcast
+    el.volume = Math.min(
+      1,
+      Math.max(0, store.outputVolume * store.volumeOf(id)),
+    );
   }
 
   /** Handler for navigator.mediaDevices "devicechange" (plug / unplug). */
@@ -277,11 +330,35 @@ class AudioManager {
     }
   }
 
-  // Make `stream` the live mic: remember it, report the active device, watch
-  // for the device vanishing, and point my VAD analyser at it.
-  #adoptStream(stream: MediaStream) {
-    this.#localStream = stream;
-    const track = stream.getAudioTracks()[0];
+  // Make `raw` the live mic: (re)point the capture chain at it, report the
+  // active device, and watch for the device vanishing. The first time in a
+  // channel session this also builds gain → destination, makes the
+  // destination's track the outgoing one, and points my VAD analyser at it.
+  #adoptStream(raw: MediaStream) {
+    this.#ensureContext();
+    const ctx = this.#ctx;
+    if (!ctx) return;
+
+    const old = this.#rawStream;
+    this.#rawStream = raw;
+
+    if (!this.#micGainNode || !this.#micDest) {
+      this.#micGainNode = ctx.createGain();
+      this.#micGainNode.gain.value = this.#store?.micGain ?? 1; // 1 = transparent
+      this.#micDest = ctx.createMediaStreamDestination();
+      this.#micGainNode.connect(this.#micDest);
+      this.#localStream = this.#micDest.stream;
+      this.setSelfMuted(this.#selfMuted); // carry mute into the new track
+      this.#monitor(this.#myId, this.#localStream); // VAD on what peers hear
+    }
+
+    // Rebuild the source on the new device. Echo cancellation / noise
+    // suppression were applied at capture, so they're preserved.
+    this.#micSource?.disconnect();
+    this.#micSource = ctx.createMediaStreamSource(raw);
+    this.#micSource.connect(this.#micGainNode);
+
+    const track = raw.getAudioTracks()[0];
     if (track) {
       this.#store?.setActiveMic({
         deviceId: track.getSettings().deviceId ?? "",
@@ -289,54 +366,39 @@ class AudioManager {
       });
       // Fires when the device is unplugged (not on our own stop()).
       track.onended = () => {
-        if (this.#localStream !== stream) return;
+        if (this.#rawStream !== raw) return;
         console.warn("[audio] mic disconnected, falling back to default");
         this.#store?.setActiveMic(null);
         void this.#switchMic(undefined);
       };
     }
-    this.#monitor(this.#myId, stream); // my own tile glows when I talk
+
+    if (old && old !== raw) {
+      old.getTracks().forEach((t) => {
+        t.onended = null;
+        t.stop(); // release the old device (its indicator goes off)
+      });
+    }
   }
 
-  // Swap the live mic without renegotiating: new track in via replaceTrack on
-  // every peer's audio sender, then stop the old one so its device is released.
+  // Switch input device live. Only the chain's source changes: the outgoing
+  // destination track — already on every peer's sender — keeps flowing, so no
+  // replaceTrack or renegotiation is needed; the old device is then released.
   async #switchMic(deviceId: string | undefined) {
     const gen = this.#generation;
     const seq = ++this.#switchSeq;
-    let stream: MediaStream;
+    let raw: MediaStream;
     try {
-      stream = await openMic(deviceId);
+      raw = await openMic(deviceId);
     } catch (err) {
       console.warn("[audio] switching mic failed:", err);
       return;
     }
-    const track = stream.getAudioTracks()[0];
-    if (gen !== this.#generation || seq !== this.#switchSeq || !track) {
-      stream.getTracks().forEach((t) => t.stop()); // superseded
-      return;
-    }
-
-    await Promise.all(
-      [...this.#peers.values()].map(async ({ pc }) => {
-        const sender = pc
-          .getSenders()
-          .find((s) => s.track?.kind === "audio" || s.track === null);
-        await sender?.replaceTrack(track).catch((err) => {
-          console.warn("[audio] replaceTrack failed:", err);
-        });
-      }),
-    );
     if (gen !== this.#generation || seq !== this.#switchSeq) {
-      stream.getTracks().forEach((t) => t.stop());
+      raw.getTracks().forEach((t) => t.stop()); // superseded
       return;
     }
-
-    const old = this.#localStream;
-    this.#adoptStream(stream);
-    old?.getTracks().forEach((t) => {
-      t.onended = null;
-      t.stop(); // release the old device (its indicator goes off)
-    });
+    this.#adoptStream(raw);
   }
 
   // ── mesh ───────────────────────────────────────────────────────
@@ -394,6 +456,7 @@ class AudioManager {
         document.body.appendChild(peer.audio);
       }
       peer.audio.srcObject = stream;
+      this.#applyPeerAudio(id, peer); // local mute + volume
       // Joining a channel was a user gesture, so autoplay is allowed.
       peer.audio
         .play()
@@ -504,7 +567,9 @@ class AudioManager {
       for (const v of m.buf) sum += v * v;
       if (Math.sqrt(sum / m.buf.length) > VAD_THRESHOLD) m.lastLoud = now;
 
-      const speaking = now - m.lastLoud < VAD_HANGOVER_MS;
+      const speaking =
+        now - m.lastLoud < VAD_HANGOVER_MS &&
+        !(this.#selfMuted && id === this.#myId); // muted: never glow
       if (speaking !== m.speaking) {
         m.speaking = speaking; // only touch the observable on transitions
         this.#store?.setSpeaking(id, speaking);
@@ -627,8 +692,31 @@ export function startAudio(root: RootStore): () => void {
         a.myId === b.myId && a.channel === b.channel && a.members === b.members,
     },
   );
+  // Self-mute follows presence (my own entry's `muted`, set locally + broadcast).
+  const disposeMute = reaction(
+    () => root.audio.selfMuted,
+    (muted) => audio.setSelfMuted(muted),
+    { fireImmediately: true },
+  );
+  const disposeGain = reaction(
+    () => root.audio.micGain,
+    (gain) => audio.setMicGain(gain),
+  );
+  // Local listening controls → every peer's <audio> element.
+  const disposeVolumes = reaction(
+    () => ({
+      output: root.audio.outputVolume,
+      muted: [...root.audio.localMuted.keys()].sort(),
+      volumes: [...root.audio.peerVolume.entries()].sort(),
+    }),
+    () => audio.applyPeerAudio(),
+    { equals: comparer.structural },
+  );
   return () => {
     dispose();
+    disposeMute();
+    disposeGain();
+    disposeVolumes();
     navigator.mediaDevices?.removeEventListener(
       "devicechange",
       audio.onDeviceChange,

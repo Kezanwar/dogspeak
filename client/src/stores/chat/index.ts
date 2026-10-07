@@ -44,6 +44,8 @@ class ChatStore {
       case EVENT.UserChangeChannel:
       case EVENT.UserChangeName:
       case EVENT.UserChangeColour:
+      case EVENT.UserMute:
+      case EVENT.UserUnmute:
       case EVENT.PeerOffer:
       case EVENT.PeerAnswer:
       case EVENT.PeerCandidate:

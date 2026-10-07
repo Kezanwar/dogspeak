@@ -2,6 +2,13 @@ import { makeObservable, observable, action, computed } from "mobx";
 import type { RootStore } from "@app/stores";
 
 const MIC_KEY = "$MobX-mic";
+const VOLUME_KEY = "$MobX-volume";
+const SELF_MUTED_KEY = "$MobX-self-muted";
+
+export const MIC_GAIN_MAX = 2; // 200%
+
+const clamp = (v: number, lo: number, hi: number) =>
+  Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : hi;
 
 export type MicDevice = { deviceId: string; label: string };
 
@@ -31,6 +38,14 @@ class AudioStore {
   // The device the live mic track is actually capturing (null = no mic live).
   activeMic: MicDevice | null = null;
 
+  // ── local-only listening controls (never broadcast) ──
+  // People I've muted for myself, and my per-person volume (0..1, default 1).
+  localMuted = observable.map<string, true>();
+  peerVolume = observable.map<string, number>();
+  // Persisted: master output volume (0..1) and my mic gain (0..2).
+  outputVolume = 1;
+  micGain = 1;
+
   constructor(rootStore: RootStore) {
     this.rootStore = rootStore;
     try {
@@ -43,6 +58,20 @@ class AudioStore {
     } catch {
       // corrupt / unavailable storage — use the system default
     }
+    try {
+      const vol = JSON.parse(localStorage.getItem(VOLUME_KEY) ?? "{}") as {
+        output?: unknown;
+        micGain?: unknown;
+      };
+      // Number.isFinite too: typeof lets NaN/Infinity (e.g. "1e999") through,
+      // and clamp would turn those into the max. Garbage keeps the defaults.
+      if (typeof vol.output === "number" && Number.isFinite(vol.output))
+        this.outputVolume = clamp(vol.output, 0, 1);
+      if (typeof vol.micGain === "number" && Number.isFinite(vol.micGain))
+        this.micGain = clamp(vol.micGain, 0, MIC_GAIN_MAX);
+    } catch {
+      // defaults
+    }
     makeObservable(this, {
       micBlocked: observable,
       micDeviceId: observable,
@@ -53,6 +82,16 @@ class AudioStore {
       setActiveMic: action,
       setMicChoice: action,
       labelsHidden: computed,
+      outputVolume: observable,
+      micGain: observable,
+      selfMuted: computed,
+      toggleSelfMute: action,
+      setSelfMute: action,
+      restoreSelfMute: action,
+      toggleLocalMute: action,
+      setPeerVolume: action,
+      setOutputVolume: action,
+      setMicGain: action,
       setSpeaking: action,
       clearSpeaking: action,
       setMicBlocked: action,
@@ -105,6 +144,107 @@ class AudioStore {
       );
     } catch {
       // storage full / disabled — the choice just won't survive a reload
+    }
+  }
+
+  // ── self-mute (broadcast via presence) ──
+  /** Am I self-muted? Presence is the source of truth (it's broadcast). */
+  get selfMuted(): boolean {
+    return this.rootStore.presence.me?.muted ?? false;
+  }
+
+  /**
+   * Toggle my mic mute: persist it (so it survives a refresh) and broadcast
+   * it via presence. The audio manager reacts by disabling the track.
+   */
+  toggleSelfMute() {
+    this.setSelfMute(!this.selfMuted);
+  }
+
+  /**
+   * Set my mic mute (persisted + broadcast); shared by the button and the
+   * mic-volume slider. Idempotent: no persist / re-broadcast when nothing
+   * changes, so the gain coupling can't send duplicate user:mute/unmute.
+   */
+  setSelfMute(muted: boolean) {
+    if (muted === this.selfMuted) return;
+    try {
+      localStorage.setItem(SELF_MUTED_KEY, JSON.stringify(muted));
+    } catch {
+      // storage full / disabled — mute just won't survive a refresh
+    }
+    this.rootStore.presence.setMuted(muted);
+    // Unmuting must make you audible again: if the slider was at 0% (e.g.
+    // muted by dragging it there, then unmuted via the button), restore 100%.
+    // Set the field directly — going through setMicGain would re-fire the
+    // zero-crossing. The manager's micGain reaction applies it to the node.
+    if (!muted && this.micGain === 0) {
+      this.micGain = 1;
+      this.#persistVolume();
+    }
+  }
+
+  /**
+   * Re-assert a persisted self-mute on (re)connect. The server treats every
+   * connection as fresh and unmuted, so the client re-sends user:mute — called
+   * from the session:welcome handler, i.e. as soon as we've joined, before
+   * any later frame is processed.
+   */
+  restoreSelfMute() {
+    let saved = false;
+    try {
+      saved =
+        JSON.parse(localStorage.getItem(SELF_MUTED_KEY) ?? "false") === true;
+    } catch {
+      // corrupt storage — stay unmuted
+    }
+    if (saved) this.rootStore.presence.setMuted(true);
+  }
+
+  // ── local-only per-person controls ──
+  isLocallyMuted(id: string): boolean {
+    return this.localMuted.has(id);
+  }
+
+  toggleLocalMute(id: string) {
+    if (this.localMuted.has(id)) this.localMuted.delete(id);
+    else this.localMuted.set(id, true);
+  }
+
+  volumeOf(id: string): number {
+    return this.peerVolume.get(id) ?? 1;
+  }
+
+  setPeerVolume(id: string, volume: number) {
+    this.peerVolume.set(id, clamp(volume, 0, 1));
+  }
+
+  setOutputVolume(volume: number) {
+    this.outputVolume = clamp(volume, 0, 1);
+    this.#persistVolume();
+  }
+
+  /**
+   * Mic volume. Crossing zero drives self-mute: dragging to 0% mutes you
+   * (broadcast, icon, persisted — the normal self-mute path), and raising it
+   * back up from 0% unmutes you.
+   */
+  setMicGain(gain: number) {
+    const prev = this.micGain;
+    this.micGain = clamp(gain, 0, MIC_GAIN_MAX);
+    this.#persistVolume();
+    if (this.micGain === 0 && prev !== 0) this.setSelfMute(true);
+    else if (this.micGain > 0 && prev === 0) this.setSelfMute(false);
+  }
+
+  #persistVolume() {
+    try {
+      localStorage.setItem(
+        VOLUME_KEY,
+        JSON.stringify({ output: this.outputVolume, micGain: this.micGain }),
+      );
+    } catch {
+      // storage full / disabled
     }
   }
 }

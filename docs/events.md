@@ -51,15 +51,30 @@ never appears — treat a missing `channel` as `""`.
 
 | Event                 | Direction  | Payload                                    | Receiver does                                                      |
 | --------------------- | ---------- | ------------------------------------------ | ------------------------------------------------------------------ |
-| `session:welcome`     | S→newcomer | `users: { "<id>": {name,colour,channel} }` | Load the roster into the store (id-keyed); your own id is in `to`. |
+| `session:welcome`     | S→newcomer | `users: { "<id>": {name,colour,channel,muted} }` | Load the roster into the store (id-keyed); your own id is in `to`. |
 | `user:joined`         | S→others   | `from`, `name`, `colour`, `channel`        | Add this person to the roster (they're in the lobby).              |
 | `user:left`           | S→others   | `from`                                     | Remove them; if you had a peer connection to them, close it.       |
 | `user:change_channel` | both ways  | `channel` (`""` = lobby)                   | Update that person's channel. See mesh rules below.                |
 | `user:change_name`    | both ways  | `name`                                     | Update that person's name.                                         |
 | `user:change_colour`  | both ways  | `colour`                                   | Update that person's colour.                                       |
+| `user:mute`           | both ways  | _(none)_                                   | Mark that person self-muted (show their muted icon).               |
+| `user:unmute`         | both ways  | _(none)_                                   | Mark that person unmuted.                                          |
 
 "Both ways" = the client sends it with just the payload; the server stamps
 `from` and broadcasts it to everyone else.
+
+**Self-mute** is two payload-less events, `user:mute` / `user:unmute` — the
+event type carries the state. A single event with `muted: bool` can't ride the
+shared envelope: `false` is meaningful but would be dropped by `omitempty` (the
+same trap as `channel: ""`). The roster's `muted` is a plain field (no
+`omitempty`), so a newcomer sees who's already muted; `user:joined` omits it
+because a fresh connection is always unmuted. Mute is a presence fact about the
+connection, so it survives channel switches.
+
+Local-only audio controls — muting someone _for yourself_, per-person volume,
+your output volume and mic gain — never cross the wire. One coupling: dragging your
+mic gain to 0% self-mutes you (sending the ordinary `user:mute`) and raising it
+from 0% unmutes — no extra event or field.
 
 A `session:welcome` frame looks like this (`to` is your own id; `users` includes you):
 
@@ -68,8 +83,8 @@ A `session:welcome` frame looks like this (`to` is your own id; `users` includes
   "type": "session:welcome",
   "to": "a1b2c3",
   "users": {
-    "a1b2c3": { "name": "Kez", "colour": "#ff8800", "channel": "general" },
-    "d4e5f6": { "name": "Dave", "colour": "#0088ff", "channel": "" }
+    "a1b2c3": { "name": "Kez", "colour": "#ff8800", "channel": "general", "muted": false },
+    "d4e5f6": { "name": "Dave", "colour": "#0088ff", "channel": "", "muted": true }
   }
 }
 ```

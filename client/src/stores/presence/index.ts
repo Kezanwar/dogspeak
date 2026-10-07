@@ -21,6 +21,7 @@ class PresenceStore {
       joinChannel: action,
       setName: action,
       setColour: action,
+      setMuted: action,
       reset: action,
     });
   }
@@ -48,13 +49,26 @@ class PresenceStore {
     switch (msg.type) {
       case EVENT.SessionWelcome:
         this.myId = msg.to;
-        this.users.replace(msg.users); // load the id-keyed roster (includes me)
+        // load the id-keyed roster (includes me); normalise muted defensively
+        this.users.replace(
+          Object.fromEntries(
+            Object.entries(msg.users).map(([id, u]) => [
+              id,
+              { ...u, muted: u.muted === true },
+            ]),
+          ),
+        );
+        // A fresh connection is unmuted server-side; re-assert a persisted
+        // self-mute now (sets my entry, sends user:mute, the audio manager
+        // disables the track) so the room sees it right as we join.
+        this.rootStore.audio.restoreSelfMute();
         break;
       case EVENT.UserJoined:
         this.users.set(msg.from, {
           name: msg.name,
           colour: msg.colour,
           channel: msg.channel ?? "", // omitted on the wire when "" (lobby)
+          muted: false, // a fresh connection is always unmuted
         });
         break;
       case EVENT.UserLeft:
@@ -68,6 +82,12 @@ class PresenceStore {
         break;
       case EVENT.UserChangeColour:
         this.patch(msg.from, { colour: msg.colour });
+        break;
+      case EVENT.UserMute:
+        this.patch(msg.from, { muted: true });
+        break;
+      case EVENT.UserUnmute:
+        this.patch(msg.from, { muted: false });
         break;
       case EVENT.PeerOffer:
       case EVENT.PeerAnswer:
@@ -102,6 +122,12 @@ class PresenceStore {
     this.patch(this.myId, { name });
     socket.updateParams({ name });
     socket.send({ type: EVENT.UserChangeName, name });
+  };
+
+  /** Self-mute flag: update my own entry AND broadcast (no echo comes back). */
+  setMuted = (muted: boolean) => {
+    this.patch(this.myId, { muted });
+    socket.send({ type: muted ? EVENT.UserMute : EVENT.UserUnmute });
   };
 
   setColour = (colour: string) => {
