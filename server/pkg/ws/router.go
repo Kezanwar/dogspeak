@@ -34,6 +34,10 @@ func route(c *Client, m Message) {
 		c.hub.changeName(c, m.Name)
 	case EventUserChangeColour:
 		c.hub.changeColour(c, m.Colour)
+	case EventUserMute:
+		c.hub.setMuted(c, true)
+	case EventUserUnmute:
+		c.hub.setMuted(c, false)
 
 	// Chat: channel-scoped, sender included. Lobby/empty messages are dropped.
 	case EventChatMessage:

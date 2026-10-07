@@ -9,6 +9,10 @@ export interface Channel {
   hasAudio: boolean; // afk = present but silent: no mic, no peer connections
 }
 
+/** Does this channel carry voice? ("" lobby and afk don't.) */
+export const isAudioChannel = (channel: string) =>
+  CHANNELS.some((c) => c.id === channel && c.hasAudio);
+
 export const CHANNELS: Channel[] = [
   { id: "general", label: "general", icon: Hash, hasAudio: true },
   { id: "lounge", label: "lounge", icon: Coffee, hasAudio: true },

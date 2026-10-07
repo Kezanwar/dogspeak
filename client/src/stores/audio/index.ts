@@ -2,6 +2,12 @@ import { makeObservable, observable, action, computed } from "mobx";
 import type { RootStore } from "@app/stores";
 
 const MIC_KEY = "$MobX-mic";
+const VOLUME_KEY = "$MobX-volume";
+
+export const MIC_GAIN_MAX = 2; // 200%
+
+const clamp = (v: number, lo: number, hi: number) =>
+  Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : hi;
 
 export type MicDevice = { deviceId: string; label: string };
 
@@ -31,6 +37,14 @@ class AudioStore {
   // The device the live mic track is actually capturing (null = no mic live).
   activeMic: MicDevice | null = null;
 
+  // ── local-only listening controls (never broadcast) ──
+  // People I've muted for myself, and my per-person volume (0..1, default 1).
+  localMuted = observable.map<string, true>();
+  peerVolume = observable.map<string, number>();
+  // Persisted: master output volume (0..1) and my mic gain (0..2).
+  outputVolume = 1;
+  micGain = 1;
+
   constructor(rootStore: RootStore) {
     this.rootStore = rootStore;
     try {
@@ -43,6 +57,18 @@ class AudioStore {
     } catch {
       // corrupt / unavailable storage — use the system default
     }
+    try {
+      const vol = JSON.parse(localStorage.getItem(VOLUME_KEY) ?? "{}") as {
+        output?: unknown;
+        micGain?: unknown;
+      };
+      if (typeof vol.output === "number")
+        this.outputVolume = clamp(vol.output, 0, 1);
+      if (typeof vol.micGain === "number")
+        this.micGain = clamp(vol.micGain, 0, MIC_GAIN_MAX);
+    } catch {
+      // defaults
+    }
     makeObservable(this, {
       micBlocked: observable,
       micDeviceId: observable,
@@ -53,6 +79,14 @@ class AudioStore {
       setActiveMic: action,
       setMicChoice: action,
       labelsHidden: computed,
+      outputVolume: observable,
+      micGain: observable,
+      selfMuted: computed,
+      toggleSelfMute: action,
+      toggleLocalMute: action,
+      setPeerVolume: action,
+      setOutputVolume: action,
+      setMicGain: action,
       setSpeaking: action,
       clearSpeaking: action,
       setMicBlocked: action,
@@ -105,6 +139,56 @@ class AudioStore {
       );
     } catch {
       // storage full / disabled — the choice just won't survive a reload
+    }
+  }
+
+  // ── self-mute (broadcast via presence) ──
+  /** Am I self-muted? Presence is the source of truth (it's broadcast). */
+  get selfMuted(): boolean {
+    return this.rootStore.presence.me?.muted ?? false;
+  }
+
+  /** Toggle my mic mute. The audio manager reacts by disabling the track. */
+  toggleSelfMute() {
+    this.rootStore.presence.setMuted(!this.selfMuted);
+  }
+
+  // ── local-only per-person controls ──
+  isLocallyMuted(id: string): boolean {
+    return this.localMuted.has(id);
+  }
+
+  toggleLocalMute(id: string) {
+    if (this.localMuted.has(id)) this.localMuted.delete(id);
+    else this.localMuted.set(id, true);
+  }
+
+  volumeOf(id: string): number {
+    return this.peerVolume.get(id) ?? 1;
+  }
+
+  setPeerVolume(id: string, volume: number) {
+    this.peerVolume.set(id, clamp(volume, 0, 1));
+  }
+
+  setOutputVolume(volume: number) {
+    this.outputVolume = clamp(volume, 0, 1);
+    this.#persistVolume();
+  }
+
+  setMicGain(gain: number) {
+    this.micGain = clamp(gain, 0, MIC_GAIN_MAX);
+    this.#persistVolume();
+  }
+
+  #persistVolume() {
+    try {
+      localStorage.setItem(
+        VOLUME_KEY,
+        JSON.stringify({ output: this.outputVolume, micGain: this.micGain }),
+      );
+    } catch {
+      // storage full / disabled
     }
   }
 }

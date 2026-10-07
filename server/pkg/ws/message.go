@@ -15,6 +15,10 @@ const (
 	EventUserChangeChannel = "user:change_channel" // both ways: someone moved channel ("" = lobby)
 	EventUserChangeName    = "user:change_name"    // both ways: someone renamed
 	EventUserChangeColour  = "user:change_colour"  // both ways: someone recoloured
+	// Self-mute: no payload, the event type IS the state — a `muted: false`
+	// couldn't ride the omitempty envelope (the same trap as channel "").
+	EventUserMute   = "user:mute"   // both ways: someone muted their mic
+	EventUserUnmute = "user:unmute" // both ways: someone unmuted
 
 	// WebRTC signalling — relayed only between peers who share a channel.
 	EventPeerOffer     = "peer:offer"
@@ -44,6 +48,7 @@ type UserInfo struct {
 	Name    string `json:"name"`
 	Colour  string `json:"colour"`
 	Channel string `json:"channel"` // "" = lobby (no channel)
+	Muted   bool   `json:"muted"`   // self-muted; no omitempty — false is meaningful
 }
 
 // Message is the envelope for everything on the wire.

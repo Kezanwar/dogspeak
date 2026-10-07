@@ -14,6 +14,8 @@ export const EVENT = {
   UserChangeChannel: "user:change_channel",
   UserChangeName: "user:change_name",
   UserChangeColour: "user:change_colour",
+  UserMute: "user:mute",
+  UserUnmute: "user:unmute",
   PeerOffer: "peer:offer",
   PeerAnswer: "peer:answer",
   PeerCandidate: "peer:candidate",
@@ -28,6 +30,7 @@ export interface UserInfo {
   name: string;
   colour: string;
   channel: string;
+  muted: boolean; // self-muted (from the roster; user:mute / user:unmute after)
 }
 
 // ─── Server → client (incoming) ────────────────────────────────────────────
@@ -77,6 +80,17 @@ export interface UserChangeColourMessage {
   type: typeof EVENT.UserChangeColour;
   from: string;
   colour: string;
+}
+
+/** user:mute / user:unmute — someone toggled self-mute. No payload: the
+ *  event type carries the state (a `muted: false` would be lost to omitempty). */
+export interface UserMuteMessage {
+  type: typeof EVENT.UserMute;
+  from: string;
+}
+export interface UserUnmuteMessage {
+  type: typeof EVENT.UserUnmute;
+  from: string;
 }
 
 /** peer:offer / peer:answer — SDP relayed from one channel-mate. */
@@ -132,6 +146,8 @@ export type ServerMessage =
   | UserChangeChannelMessage
   | UserChangeNameMessage
   | UserChangeColourMessage
+  | UserMuteMessage
+  | UserUnmuteMessage
   | PeerOfferMessage
   | PeerAnswerMessage
   | PeerCandidateMessage
@@ -152,6 +168,13 @@ export interface ChangeNameOut {
 export interface ChangeColourOut {
   type: typeof EVENT.UserChangeColour;
   colour: string;
+}
+
+export interface MuteOut {
+  type: typeof EVENT.UserMute;
+}
+export interface UnmuteOut {
+  type: typeof EVENT.UserUnmute;
 }
 
 export interface PeerOfferOut {
@@ -181,6 +204,8 @@ export type ClientMessage =
   | ChangeChannelOut
   | ChangeNameOut
   | ChangeColourOut
+  | MuteOut
+  | UnmuteOut
   | PeerOfferOut
   | PeerAnswerOut
   | PeerCandidateOut

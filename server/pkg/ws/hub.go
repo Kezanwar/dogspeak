@@ -44,7 +44,7 @@ func (h *Hub) add(c *Client) map[string]UserInfo {
 
 	roster := make(map[string]UserInfo, len(h.clients))
 	for id, cl := range h.clients {
-		roster[id] = UserInfo{Name: cl.name, Colour: cl.colour, Channel: cl.channel}
+		roster[id] = UserInfo{Name: cl.name, Colour: cl.colour, Channel: cl.channel, Muted: cl.muted}
 	}
 	return roster
 }
@@ -125,6 +125,19 @@ func (h *Hub) changeColour(c *Client, colour string) {
 	c.colour = colour
 	h.mu.Unlock()
 	h.broadcastAll(c.id, encode(Message{Type: EventUserChangeColour, From: c.id, Colour: colour}))
+}
+
+// setMuted records a client's self-mute and broadcasts it as user:mute or
+// user:unmute (no payload — the event type carries the state).
+func (h *Hub) setMuted(c *Client, muted bool) {
+	h.mu.Lock()
+	c.muted = muted
+	h.mu.Unlock()
+	ev := EventUserUnmute
+	if muted {
+		ev = EventUserMute
+	}
+	h.broadcastAll(c.id, encode(Message{Type: ev, From: c.id}))
 }
 
 // relayToPeer forwards a signalling message to one peer — but ONLY if that peer

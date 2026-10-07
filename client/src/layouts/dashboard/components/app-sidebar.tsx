@@ -13,6 +13,7 @@ import {
   SidebarRail,
 } from "@app/components/ui/sidebar";
 import NavUser from "@app/layouts/dashboard/components/nav-user";
+import VoiceStrip from "@app/layouts/dashboard/components/voice-strip";
 import MemberTile from "@app/layouts/dashboard/components/member-tile";
 import { CHANNELS, type Channel } from "@app/config/channels";
 import store, { observer } from "@app/stores";
@@ -106,6 +107,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarContent>
 
       <SidebarFooter className="mb-2">
+        <VoiceStrip />
         <NavUser />
       </SidebarFooter>
       <SidebarRail />
