@@ -1,4 +1,5 @@
-// Placeholder speaking source. Voice-activity detection (a Web Audio
-// AnalyserNode per stream) lands with the audio milestone; until then nobody is
-// ever speaking, but MemberTile's glow is already wired to this.
-export const isSpeaking: (id: string) => boolean = () => false;
+import store from "@app/stores";
+
+// Who's talking, from local voice-activity detection in the audio manager.
+// Reads an observable per-id flag, so call it inside an observer.
+export const isSpeaking = (id: string): boolean => store.audio.isSpeaking(id);

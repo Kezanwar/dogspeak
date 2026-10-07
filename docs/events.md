@@ -140,6 +140,12 @@ Both sides derive the same answer from the ids, so two offers can never cross
 Leaving/switching a channel: close every peer connection and release the mic,
 then (if the new channel has audio) re-acquire it and apply the rules above.
 
+**Mic retry:** if your mic was blocked and a retry succeeds, your existing
+connections are receive-only. Rebuild instead of renegotiating: close them and
+send a fresh `peer:offer` to everyone in the channel, whatever the ids (they're
+idle, so there's no glare). A peer that gets an offer for a connection it has
+already negotiated replaces it and answers.
+
 **AFK / no audio:** joining `afk` is a normal `user:change_channel`; the client
 just skips `getUserMedia` and opens no peer connections. You appear present, silent.
 

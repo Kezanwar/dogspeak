@@ -41,7 +41,7 @@ type Props = {
 };
 
 // Its own observer reading only its own roster entry, so a name/colour change
-// (or, later, a speaking flip) re-renders this tile and not the whole list.
+// (or a speaking flip from VAD) re-renders this tile and not the whole list.
 const MemberTile = observer(({ id, speaking = isSpeaking(id) }: Props) => {
   const user = store.presence.users.get(id);
   if (!user) return null;
@@ -53,7 +53,7 @@ const MemberTile = observer(({ id, speaking = isSpeaking(id) }: Props) => {
       <ColourAvatar
         name={user.name}
         colour={user.colour}
-        className="size-6 rounded-full text-[11px] transition-shadow duration-150"
+        className="size-6 rounded-full text-[11px] motion-safe:transition-shadow motion-safe:duration-150"
         style={{
           // ring (with a sidebar-coloured gap) + soft glow in the member's colour
           boxShadow: speaking
