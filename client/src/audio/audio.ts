@@ -38,6 +38,8 @@ const VAD_THRESHOLD = 0.03;
 const VAD_HANGOVER_MS = 250; // stay "speaking" this long after dropping below
 const VAD_POLL_MS = 100;
 
+const CUE_GAIN = 0.06; // join/leave blips: audible, well under voice
+
 type Monitor = {
   source: MediaStreamAudioSourceNode;
   analyser: AnalyserNode;
@@ -260,6 +262,39 @@ class AudioManager {
       peer.audio.srcObject = null;
       peer.audio.remove();
     }
+  }
+
+  /**
+   * A short, quiet two-tone blip on the shared AudioContext (no assets):
+   * rising for "join", falling for "leave". Kept low so it sits under voice.
+   */
+  playCue(kind: "join" | "leave") {
+    this.#ensureContext();
+    const ctx = this.#ctx;
+    if (!ctx) return;
+    const [first, second] = kind === "join" ? [660, 880] : [880, 587];
+    const tone = (freq: number, at: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      // quick attack, exponential decay — no clicks
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(CUE_GAIN, at + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.11);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(at);
+      osc.stop(at + 0.12);
+      osc.onended = () => gain.disconnect();
+    };
+    const play = () => {
+      const t = ctx.currentTime + 0.01;
+      tone(first, t);
+      tone(second, t + 0.09);
+    };
+    // Normally running (joining was a click); resume quietly if not.
+    if (ctx.state === "running") play();
+    else ctx.resume().then(play, () => {});
   }
 
   // ── voice-activity detection ───────────────────────────────────
