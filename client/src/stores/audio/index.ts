@@ -86,6 +86,7 @@ class AudioStore {
       micGain: observable,
       selfMuted: computed,
       toggleSelfMute: action,
+      setSelfMuted: action,
       restoreSelfMute: action,
       toggleLocalMute: action,
       setPeerVolume: action,
@@ -157,7 +158,12 @@ class AudioStore {
    * it via presence. The audio manager reacts by disabling the track.
    */
   toggleSelfMute() {
-    const muted = !this.selfMuted;
+    this.setSelfMuted(!this.selfMuted);
+  }
+
+  /** Set my mic mute (persisted + broadcast). Shared by the button and the slider. */
+  setSelfMuted(muted: boolean) {
+    if (muted === this.selfMuted) return;
     try {
       localStorage.setItem(SELF_MUTED_KEY, JSON.stringify(muted));
     } catch {
@@ -206,9 +212,17 @@ class AudioStore {
     this.#persistVolume();
   }
 
+  /**
+   * Mic volume. Crossing zero drives self-mute: dragging to 0% mutes you
+   * (broadcast, icon, persisted — the normal self-mute path), and raising it
+   * back up from 0% unmutes you.
+   */
   setMicGain(gain: number) {
+    const prev = this.micGain;
     this.micGain = clamp(gain, 0, MIC_GAIN_MAX);
     this.#persistVolume();
+    if (prev > 0 && this.micGain === 0) this.setSelfMuted(true);
+    else if (prev === 0 && this.micGain > 0) this.setSelfMuted(false);
   }
 
   #persistVolume() {

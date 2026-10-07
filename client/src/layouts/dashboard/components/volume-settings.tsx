@@ -49,8 +49,8 @@ const VolumeSettings = observer(() => {
           className="accent-primary w-full"
           aria-describedby={audio.micGain === 0 ? "mic-volume-off" : undefined}
         />
-        {/* 0% is a volume, not a self-mute: nothing is broadcast and no
-            muted icon shows, so tell the user why nobody can hear them. */}
+        {/* Dragging to 0% also self-mutes you (raising it unmutes); this
+            explains why, right next to the slider that did it. */}
         {audio.micGain === 0 && (
           <p
             id="mic-volume-off"
