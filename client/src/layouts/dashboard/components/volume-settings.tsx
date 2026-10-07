@@ -47,7 +47,19 @@ const VolumeSettings = observer(() => {
           value={mic}
           onChange={(e) => audio.setMicGain(Number(e.target.value) / 100)}
           className="accent-primary w-full"
+          aria-describedby={audio.micGain === 0 ? "mic-volume-off" : undefined}
         />
+        {/* 0% is a volume, not a self-mute: nothing is broadcast and no
+            muted icon shows, so tell the user why nobody can hear them. */}
+        {audio.micGain === 0 && (
+          <p
+            id="mic-volume-off"
+            role="status"
+            className="text-destructive text-xs"
+          >
+            mic is off — no one can hear you
+          </p>
+        )}
       </div>
     </div>
   );

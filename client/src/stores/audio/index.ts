@@ -63,9 +63,11 @@ class AudioStore {
         output?: unknown;
         micGain?: unknown;
       };
-      if (typeof vol.output === "number")
+      // Number.isFinite too: typeof lets NaN/Infinity (e.g. "1e999") through,
+      // and clamp would turn those into the max. Garbage keeps the defaults.
+      if (typeof vol.output === "number" && Number.isFinite(vol.output))
         this.outputVolume = clamp(vol.output, 0, 1);
-      if (typeof vol.micGain === "number")
+      if (typeof vol.micGain === "number" && Number.isFinite(vol.micGain))
         this.micGain = clamp(vol.micGain, 0, MIC_GAIN_MAX);
     } catch {
       // defaults
