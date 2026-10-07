@@ -1,3 +1,5 @@
+import { MicOff } from "lucide-react";
+
 import { Label } from "@app/components/ui/label";
 import store, { observer } from "@app/stores";
 import { MIC_GAIN_MAX } from "@app/stores/audio";
@@ -34,7 +36,18 @@ const VolumeSettings = observer(() => {
       <div className="grid gap-1.5">
         <div className="flex items-center justify-between">
           <Label htmlFor="mic-volume">mic volume</Label>
-          <span className="text-muted-foreground text-xs tabular-nums">
+          <span className="text-muted-foreground flex items-center gap-1 text-xs tabular-nums">
+            {/* 0% also self-mutes you (raising it unmutes); same red mic-off
+                as the member tile, with the warning kept for screen readers. */}
+            {audio.micGain === 0 && (
+              <MicOff
+                role="img"
+                aria-label="mic off — no one can hear you"
+                className="text-destructive size-3.5 shrink-0"
+              >
+                <title>mic off — no one can hear you</title>
+              </MicOff>
+            )}
             {mic}%
           </span>
         </div>
@@ -47,19 +60,7 @@ const VolumeSettings = observer(() => {
           value={mic}
           onChange={(e) => audio.setMicGain(Number(e.target.value) / 100)}
           className="accent-primary w-full"
-          aria-describedby={audio.micGain === 0 ? "mic-volume-off" : undefined}
         />
-        {/* Dragging to 0% also self-mutes you (raising it unmutes); this
-            explains why, right next to the slider that did it. */}
-        {audio.micGain === 0 && (
-          <p
-            id="mic-volume-off"
-            role="status"
-            className="text-destructive text-xs"
-          >
-            mic is off — no one can hear you
-          </p>
-        )}
       </div>
     </div>
   );

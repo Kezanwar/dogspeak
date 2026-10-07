@@ -65,9 +65,9 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
           className="size-10 rounded-lg text-base"
         />
         <div className="grid flex-1 gap-1.5">
-          <Label htmlFor="profile-name">name</Label>
           <Input
             id="profile-name"
+            aria-label="name"
             value={name}
             maxLength={NAME_MAX_LENGTH}
             autoFocus
