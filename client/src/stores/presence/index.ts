@@ -58,6 +58,10 @@ class PresenceStore {
             ]),
           ),
         );
+        // A fresh connection is unmuted server-side; re-assert a persisted
+        // self-mute now (sets my entry, sends user:mute, the audio manager
+        // disables the track) so the room sees it right as we join.
+        this.rootStore.audio.restoreSelfMute();
         break;
       case EVENT.UserJoined:
         this.users.set(msg.from, {

@@ -3,6 +3,7 @@ import type { RootStore } from "@app/stores";
 
 const MIC_KEY = "$MobX-mic";
 const VOLUME_KEY = "$MobX-volume";
+const SELF_MUTED_KEY = "$MobX-self-muted";
 
 export const MIC_GAIN_MAX = 2; // 200%
 
@@ -83,6 +84,7 @@ class AudioStore {
       micGain: observable,
       selfMuted: computed,
       toggleSelfMute: action,
+      restoreSelfMute: action,
       toggleLocalMute: action,
       setPeerVolume: action,
       setOutputVolume: action,
@@ -148,9 +150,35 @@ class AudioStore {
     return this.rootStore.presence.me?.muted ?? false;
   }
 
-  /** Toggle my mic mute. The audio manager reacts by disabling the track. */
+  /**
+   * Toggle my mic mute: persist it (so it survives a refresh) and broadcast
+   * it via presence. The audio manager reacts by disabling the track.
+   */
   toggleSelfMute() {
-    this.rootStore.presence.setMuted(!this.selfMuted);
+    const muted = !this.selfMuted;
+    try {
+      localStorage.setItem(SELF_MUTED_KEY, JSON.stringify(muted));
+    } catch {
+      // storage full / disabled — mute just won't survive a refresh
+    }
+    this.rootStore.presence.setMuted(muted);
+  }
+
+  /**
+   * Re-assert a persisted self-mute on (re)connect. The server treats every
+   * connection as fresh and unmuted, so the client re-sends user:mute — called
+   * from the session:welcome handler, i.e. as soon as we've joined, before
+   * any later frame is processed.
+   */
+  restoreSelfMute() {
+    let saved = false;
+    try {
+      saved =
+        JSON.parse(localStorage.getItem(SELF_MUTED_KEY) ?? "false") === true;
+    } catch {
+      // corrupt storage — stay unmuted
+    }
+    if (saved) this.rootStore.presence.setMuted(true);
   }
 
   // ── local-only per-person controls ──
