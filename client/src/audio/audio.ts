@@ -6,6 +6,7 @@ import { EVENT } from "@app/socket/events";
 import { socket } from "@app/socket/socket";
 import type { RootStore } from "@app/stores";
 import type AudioStore from "@app/stores/audio";
+import type { MicDevice } from "@app/stores/audio";
 
 // Open-mic WebRTC audio mesh within a channel.
 //
@@ -40,6 +41,38 @@ const VAD_POLL_MS = 100;
 
 const CUE_GAIN = 0.06; // join/leave blips: audible, well under voice
 
+// Chrome's pseudo-devices that alias a real one; we offer our own "default".
+const PSEUDO_DEVICE_IDS = new Set(["default", "communications"]);
+
+const listMics = async (): Promise<MicDevice[]> => {
+  const all = await navigator.mediaDevices.enumerateDevices();
+  return all
+    .filter(
+      (d) => d.kind === "audioinput" && !PSEUDO_DEVICE_IDS.has(d.deviceId),
+    )
+    .map((d) => ({ deviceId: d.deviceId, label: d.label }));
+};
+
+// getUserMedia for a specific input, falling back to the default device if
+// that one is gone (OverconstrainedError/NotFoundError). Permission errors
+// propagate — that's the mic-blocked case.
+const openMic = async (deviceId?: string): Promise<MediaStream> => {
+  if (deviceId) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: deviceId } },
+      });
+    } catch (err) {
+      const name = (err as DOMException)?.name;
+      if (name !== "OverconstrainedError" && name !== "NotFoundError")
+        throw err;
+      console.warn("[audio] chosen mic unavailable, using default:", err);
+    }
+  }
+  // Browser defaults keep echo cancellation / noise suppression on.
+  return navigator.mediaDevices.getUserMedia({ audio: true });
+};
+
 type Monitor = {
   source: MediaStreamAudioSourceNode;
   analyser: AnalyserNode;
@@ -72,6 +105,8 @@ class AudioManager {
   #ctx: AudioContext | null = null;
   #monitors = new Map<string, Monitor>();
   #vadTimer: ReturnType<typeof setInterval> | null = null;
+  // Bumped per mic switch so an older, slower getUserMedia can't win.
+  #switchSeq = 0;
 
   attach(store: AudioStore | null) {
     this.#store = store;
@@ -108,7 +143,11 @@ class AudioManager {
     for (const id of [...this.#monitors.keys()]) this.#unmonitor(id);
     this.#store?.clearSpeaking();
     this.#store?.setMicBlocked(false); // only meaningful inside an audio channel
-    this.#localStream?.getTracks().forEach((t) => t.stop());
+    this.#store?.setActiveMic(null);
+    this.#localStream?.getTracks().forEach((t) => {
+      t.onended = null;
+      t.stop();
+    });
     this.#localStream = null;
     this.#micReady = null;
     this.#desired.clear();
@@ -138,6 +177,52 @@ class AudioManager {
     this.#rebuildMesh();
   }
 
+  // ── microphone choice ──────────────────────────────────────────
+
+  /** Re-read the list of audio inputs into the store. */
+  async refreshDevices() {
+    try {
+      this.#store?.setDevices(await listMics());
+    } catch (err) {
+      console.warn("[audio] enumerateDevices failed:", err);
+    }
+  }
+
+  /**
+   * Ask for mic permission just so device labels become visible (the picker's
+   * "allow access" hint). Releases the mic again unless we're using it.
+   */
+  async requestPermission(): Promise<boolean> {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (s !== this.#localStream) s.getTracks().forEach((t) => t.stop());
+      await this.refreshDevices();
+      return true;
+    } catch (err) {
+      console.warn("[audio] mic permission refused:", err);
+      return false;
+    }
+  }
+
+  /**
+   * Pick an input ("" = system default). Always persisted; if we're in an
+   * audio channel the live track is swapped in place, no rejoin.
+   */
+  async setMic(deviceId: string, label: string) {
+    this.#store?.setMicChoice(deviceId, label);
+    if (!this.#channel) return; // applies on next join
+    if (!this.#localStream) {
+      await this.retryMic(); // was blocked — try again with the new choice
+      return;
+    }
+    await this.#switchMic(deviceId || undefined);
+  }
+
+  /** Handler for navigator.mediaDevices "devicechange" (plug / unplug). */
+  onDeviceChange = () => {
+    void this.refreshDevices();
+  };
+
   /** Incoming signalling from the socket dispatch; ignores everything else. */
   handleMessage = (msg: ServerMessage) => {
     switch (msg.type) {
@@ -158,15 +243,14 @@ class AudioManager {
   // ── mic ────────────────────────────────────────────────────────
   async #acquireMic(gen: number): Promise<void> {
     try {
-      // Browser defaults keep echo cancellation / noise suppression on.
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await openMic(await this.#preferredDeviceId());
       if (gen !== this.#generation) {
         stream.getTracks().forEach((t) => t.stop()); // left before it arrived
         return;
       }
-      this.#localStream = stream;
+      this.#adoptStream(stream);
       this.#store?.setMicBlocked(false);
-      this.#monitor(this.#myId, stream); // my own tile glows when I talk
+      void this.refreshDevices(); // labels are visible now we have permission
     } catch (err) {
       if (gen !== this.#generation) return;
       // Stay present (and still hear others, listen-only) — just no mic.
@@ -174,6 +258,85 @@ class AudioManager {
       console.warn("[audio] no microphone:", err);
       this.#store?.setMicBlocked(true);
     }
+  }
+
+  // The persisted choice, if it's still plugged in. deviceIds can rotate, so
+  // fall back to matching the saved label; without permission ids/labels are
+  // hidden, so just try the saved id (openMic falls back if it's gone).
+  async #preferredDeviceId(): Promise<string | undefined> {
+    const id = this.#store?.micDeviceId;
+    if (!id) return undefined;
+    try {
+      const mics = await listMics();
+      if (mics.every((d) => !d.label)) return id;
+      if (mics.some((d) => d.deviceId === id)) return id;
+      const hint = this.#store?.micDeviceLabel;
+      return hint ? mics.find((d) => d.label === hint)?.deviceId : undefined;
+    } catch {
+      return id;
+    }
+  }
+
+  // Make `stream` the live mic: remember it, report the active device, watch
+  // for the device vanishing, and point my VAD analyser at it.
+  #adoptStream(stream: MediaStream) {
+    this.#localStream = stream;
+    const track = stream.getAudioTracks()[0];
+    if (track) {
+      this.#store?.setActiveMic({
+        deviceId: track.getSettings().deviceId ?? "",
+        label: track.label,
+      });
+      // Fires when the device is unplugged (not on our own stop()).
+      track.onended = () => {
+        if (this.#localStream !== stream) return;
+        console.warn("[audio] mic disconnected, falling back to default");
+        this.#store?.setActiveMic(null);
+        void this.#switchMic(undefined);
+      };
+    }
+    this.#monitor(this.#myId, stream); // my own tile glows when I talk
+  }
+
+  // Swap the live mic without renegotiating: new track in via replaceTrack on
+  // every peer's audio sender, then stop the old one so its device is released.
+  async #switchMic(deviceId: string | undefined) {
+    const gen = this.#generation;
+    const seq = ++this.#switchSeq;
+    let stream: MediaStream;
+    try {
+      stream = await openMic(deviceId);
+    } catch (err) {
+      console.warn("[audio] switching mic failed:", err);
+      return;
+    }
+    const track = stream.getAudioTracks()[0];
+    if (gen !== this.#generation || seq !== this.#switchSeq || !track) {
+      stream.getTracks().forEach((t) => t.stop()); // superseded
+      return;
+    }
+
+    await Promise.all(
+      [...this.#peers.values()].map(async ({ pc }) => {
+        const sender = pc
+          .getSenders()
+          .find((s) => s.track?.kind === "audio" || s.track === null);
+        await sender?.replaceTrack(track).catch((err) => {
+          console.warn("[audio] replaceTrack failed:", err);
+        });
+      }),
+    );
+    if (gen !== this.#generation || seq !== this.#switchSeq) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+
+    const old = this.#localStream;
+    this.#adoptStream(stream);
+    old?.getTracks().forEach((t) => {
+      t.onended = null;
+      t.stop(); // release the old device (its indicator goes off)
+    });
   }
 
   // ── mesh ───────────────────────────────────────────────────────
@@ -439,6 +602,11 @@ export const audio = new AudioManager();
  */
 export function startAudio(root: RootStore): () => void {
   audio.attach(root.audio);
+  void audio.refreshDevices();
+  navigator.mediaDevices?.addEventListener(
+    "devicechange",
+    audio.onDeviceChange,
+  );
   const dispose = reaction(
     () => {
       const { presence } = root;
@@ -461,6 +629,10 @@ export function startAudio(root: RootStore): () => void {
   );
   return () => {
     dispose();
+    navigator.mediaDevices?.removeEventListener(
+      "devicechange",
+      audio.onDeviceChange,
+    );
     audio.dispose();
     audio.attach(null);
   };
