@@ -86,7 +86,7 @@ class AudioStore {
       micGain: observable,
       selfMuted: computed,
       toggleSelfMute: action,
-      setSelfMuted: action,
+      setSelfMute: action,
       restoreSelfMute: action,
       toggleLocalMute: action,
       setPeerVolume: action,
@@ -158,11 +158,15 @@ class AudioStore {
    * it via presence. The audio manager reacts by disabling the track.
    */
   toggleSelfMute() {
-    this.setSelfMuted(!this.selfMuted);
+    this.setSelfMute(!this.selfMuted);
   }
 
-  /** Set my mic mute (persisted + broadcast). Shared by the button and the slider. */
-  setSelfMuted(muted: boolean) {
+  /**
+   * Set my mic mute (persisted + broadcast); shared by the button and the
+   * mic-volume slider. Idempotent: no persist / re-broadcast when nothing
+   * changes, so the gain coupling can't send duplicate user:mute/unmute.
+   */
+  setSelfMute(muted: boolean) {
     if (muted === this.selfMuted) return;
     try {
       localStorage.setItem(SELF_MUTED_KEY, JSON.stringify(muted));
@@ -170,6 +174,14 @@ class AudioStore {
       // storage full / disabled — mute just won't survive a refresh
     }
     this.rootStore.presence.setMuted(muted);
+    // Unmuting must make you audible again: if the slider was at 0% (e.g.
+    // muted by dragging it there, then unmuted via the button), restore 100%.
+    // Set the field directly — going through setMicGain would re-fire the
+    // zero-crossing. The manager's micGain reaction applies it to the node.
+    if (!muted && this.micGain === 0) {
+      this.micGain = 1;
+      this.#persistVolume();
+    }
   }
 
   /**
@@ -221,8 +233,8 @@ class AudioStore {
     const prev = this.micGain;
     this.micGain = clamp(gain, 0, MIC_GAIN_MAX);
     this.#persistVolume();
-    if (prev > 0 && this.micGain === 0) this.setSelfMuted(true);
-    else if (prev === 0 && this.micGain > 0) this.setSelfMuted(false);
+    if (this.micGain === 0 && prev !== 0) this.setSelfMute(true);
+    else if (this.micGain > 0 && prev === 0) this.setSelfMute(false);
   }
 
   #persistVolume() {

@@ -72,7 +72,9 @@ because a fresh connection is always unmuted. Mute is a presence fact about the
 connection, so it survives channel switches.
 
 Local-only audio controls — muting someone _for yourself_, per-person volume,
-your output volume and mic gain — never cross the wire.
+your output volume and mic gain — never cross the wire. One coupling: dragging your
+mic gain to 0% self-mutes you (sending the ordinary `user:mute`) and raising it
+from 0% unmutes — no extra event or field.
 
 A `session:welcome` frame looks like this (`to` is your own id; `users` includes you):
 
