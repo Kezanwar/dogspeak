@@ -3,6 +3,7 @@ import type { RootStore } from "@app/stores";
 import type { ServerMessage, UserInfo } from "@app/socket/events";
 import { EVENT } from "@app/socket/events";
 import { socket } from "@app/socket/socket";
+import { audio } from "@app/audio/audio";
 
 class PresenceStore {
   rootStore: RootStore;
@@ -111,10 +112,12 @@ class PresenceStore {
 
   // ── lifecycle ──────────────────────────────────────────────────
   connect(name: string, colour: string) {
-    // Every frame goes to every store; each ignores the events it doesn't own.
+    // Every frame goes to every consumer; each ignores what it doesn't own
+    // (peer:* signalling goes to the imperative audio manager).
     socket.onMessage((msg) => {
       this.apply(msg);
       this.rootStore.chat.apply(msg);
+      audio.handleMessage(msg);
     });
     socket.connect({ name, colour });
   }
