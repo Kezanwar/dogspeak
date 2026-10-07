@@ -15,7 +15,12 @@ import {
 import NavUser from "@app/layouts/dashboard/components/nav-user";
 import VoiceStrip from "@app/layouts/dashboard/components/voice-strip";
 import MemberTile from "@app/layouts/dashboard/components/member-tile";
-import { CHANNELS, type Channel } from "@app/config/channels";
+import {
+  CHANNELS,
+  TEXT_CHANNELS,
+  type Channel,
+  type TextChannel,
+} from "@app/config/channels";
 import store, { observer } from "@app/stores";
 
 // Only the member list re-renders on roster changes; each tile observes its
@@ -53,23 +58,45 @@ const LobbyMembers = observer(() => {
   );
 });
 
-const ChannelItem = observer(({ channel }: { channel: Channel }) => {
-  const { presence } = store;
-  const active = presence.myChannel === channel.id;
+// Text channel: clicking only changes the VIEW. It never joins, leaves or
+// disconnects voice — you keep talking/hearing while you read.
+const TextChannelItem = observer(({ channel }: { channel: TextChannel }) => {
+  const { ui } = store;
+  const viewing = ui.view.kind === "text" && ui.view.id === channel.id;
   const Icon = channel.icon;
-
-  const join = () => {
-    if (!active) presence.joinChannel(channel.id);
-  };
 
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
-        isActive={active}
+        isActive={viewing}
+        tooltip={channel.label}
+        onClick={() => ui.viewText(channel.id)}
+        className="select-none"
+      >
+        <Icon />
+        <span>{channel.label}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+});
+
+// Voice channel: single click previews it (view only, no audio); double-click
+// (or Enter) joins it and shows it — or, if you're already in it, just shows
+// it again without re-joining (ui.enterVoice guards on presence.myChannel).
+const VoiceChannelItem = observer(({ channel }: { channel: Channel }) => {
+  const { ui } = store;
+  const viewing = ui.view.kind === "voice" && ui.view.id === channel.id;
+  const Icon = channel.icon;
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        isActive={viewing}
         tooltip={`double-click to join ${channel.label}`}
-        onDoubleClick={join}
+        onClick={() => ui.viewVoice(channel.id)}
+        onDoubleClick={() => ui.enterVoice(channel.id)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") join();
+          if (e.key === "Enter") ui.enterVoice(channel.id);
         }}
         className="select-none"
       >
@@ -92,10 +119,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>channels</SidebarGroupLabel>
+          <SidebarGroupLabel>text channels</SidebarGroupLabel>
+          <SidebarMenu>
+            {TEXT_CHANNELS.map((channel) => (
+              <TextChannelItem key={channel.id} channel={channel} />
+            ))}
+          </SidebarMenu>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>voice channels</SidebarGroupLabel>
           <SidebarMenu>
             {CHANNELS.map((channel) => (
-              <ChannelItem key={channel.id} channel={channel} />
+              <VoiceChannelItem key={channel.id} channel={channel} />
             ))}
           </SidebarMenu>
         </SidebarGroup>

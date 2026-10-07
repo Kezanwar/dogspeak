@@ -3,7 +3,7 @@ import { format } from "date-fns";
 import { MessagesSquare } from "lucide-react";
 
 import { Input } from "@app/components/ui/input";
-import { CHANNELS } from "@app/config/channels";
+import { TEXT_CHANNELS } from "@app/config/channels";
 import type { ChatMessage } from "@app/socket/events";
 import { contrastingShade } from "@app/lib/colour";
 import { cn } from "@app/lib/utils";
@@ -49,21 +49,22 @@ const MessageRow = ({ message, isMine }: MessageRowProps) => (
   </li>
 );
 
-const ChatPanel = observer(() => {
+// The global text chat. Always usable — in the lobby, in a voice channel, or
+// while viewing text from inside one; it doesn't depend on presence.myChannel.
+const ChatPanel = observer(({ channelId }: { channelId: string }) => {
   const { presence, chat } = store;
-  const channel = presence.myChannel;
-  const inLobby = channel === "";
-  const messages = inLobby ? [] : chat.messagesIn(channel);
-  const label = CHANNELS.find((c) => c.id === channel)?.label ?? channel;
+  const messages = chat.messages;
+  const label =
+    TEXT_CHANNELS.find((c) => c.id === channelId)?.label ?? channelId;
 
   const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Keep the newest message in view as messages arrive or the channel changes.
+  // Keep the newest message in view as messages arrive (and on opening).
   const newestId = messages[messages.length - 1]?.id;
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [newestId, channel]);
+  }, [newestId]);
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -71,9 +72,6 @@ const ChatPanel = observer(() => {
     chat.send(draft);
     setDraft("");
   };
-
-  // Lobby: no chat at all — just the prompt to join somewhere.
-  if (inLobby) return <EmptyState text="join a channel to chat" />;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">

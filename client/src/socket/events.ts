@@ -125,16 +125,16 @@ export interface ChatMessage {
   ts: number; // unix millis
 }
 
-/** chat:message — a message in your channel (your own included, via echo). */
+/** chat:message — a message in the global chat (your own included, via echo).
+ *  Chat isn't tied to voice channels, so there's no `channel`. */
 export interface ChatMessageMessage extends ChatMessage {
   type: typeof EVENT.ChatMessage;
-  channel: string;
 }
 
-/** chat:history — the channel's recent messages, sent to you on joining it. */
+/** chat:history — the recent global messages, sent once on connect, right
+ *  after session:welcome (not on voice-channel join). */
 export interface ChatHistoryMessage {
   type: typeof EVENT.ChatHistory;
-  channel: string;
   messages: ChatMessage[];
 }
 

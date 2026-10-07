@@ -4,39 +4,34 @@ import type { ChatMessage, ServerMessage } from "@app/socket/events";
 import { EVENT } from "@app/socket/events";
 import { socket } from "@app/socket/socket";
 
-// Channel-scoped text chat. The server only sends us chat for the channel we're
-// in, plus a chat:history snapshot each time we join one.
+// The ONE global text chat — independent of voice channels, usable from the
+// lobby. The server sends a chat:history snapshot on connect, then every
+// chat:message to everyone.
 class ChatStore {
   rootStore: RootStore;
 
-  messagesByChannel = observable.map<string, ChatMessage[]>();
+  /** Oldest first. */
+  messages: ChatMessage[] = [];
 
   constructor(rootStore: RootStore) {
     this.rootStore = rootStore;
     makeObservable(this, {
+      messages: observable,
       apply: action,
       reset: action,
     });
-  }
-
-  /** Messages for a channel, oldest first. */
-  messagesIn(channel: string): ChatMessage[] {
-    return this.messagesByChannel.get(channel) ?? [];
   }
 
   // ── incoming ───────────────────────────────────────────────────
   apply = (msg: ServerMessage) => {
     switch (msg.type) {
       case EVENT.ChatMessage: {
-        const { channel, id, from, name, colour, text, ts } = msg;
-        const message: ChatMessage = { id, from, name, colour, text, ts };
-        const list = this.messagesByChannel.get(channel);
-        if (list) list.push(message);
-        else this.messagesByChannel.set(channel, [message]);
+        const { id, from, name, colour, text, ts } = msg;
+        this.messages.push({ id, from, name, colour, text, ts });
         break;
       }
       case EVENT.ChatHistory:
-        this.messagesByChannel.set(msg.channel, msg.messages ?? []);
+        this.messages = msg.messages ?? [];
         break;
       case EVENT.SessionWelcome:
       case EVENT.UserJoined:
@@ -67,7 +62,7 @@ class ChatStore {
   };
 
   reset = () => {
-    this.messagesByChannel.clear();
+    this.messages = [];
   };
 }
 

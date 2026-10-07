@@ -14,7 +14,7 @@ const maxChatLen = 2000
 // Two buckets:
 //   - signalling: relayed to ONE peer, and only if they share the sender's channel
 //   - presence:   applied to the sender, then broadcast to EVERYONE (server-wide)
-//   - chat:       stamped + stored, then sent to everyone in the sender's channel
+//   - chat:       stamped + stored, then sent to EVERYONE (global, not per channel)
 func route(c *Client, m Message) {
 	// Always stamp the real sender. Never trust a client-supplied From.
 	m.From = c.id
@@ -39,7 +39,7 @@ func route(c *Client, m Message) {
 	case EventUserUnmute:
 		c.hub.setMuted(c, false)
 
-	// Chat: channel-scoped, sender included. Lobby/empty messages are dropped.
+	// Chat: global, sender included. Empty messages are dropped.
 	case EventChatMessage:
 		if text := cleanChat(m.Text); text != "" {
 			c.hub.postChat(c, text)
