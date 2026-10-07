@@ -16,8 +16,9 @@ Everything divides into buckets, and the server treats them differently:
   **channel-scoped**: the server only relays it between two peers who share the
   same (non-empty) channel. That's what forms an audio mesh _within_ a channel
   and never across channels.
-- **Chat** — text messages. Also **channel-scoped**: you only send and receive
-  chat for the channel you're in. There is no chat in the lobby.
+- **Chat** — text messages. **Global**: one chat for everyone connected,
+  independent of voice channels (usable from the lobby too). It never reads or
+  carries `channel`.
 
 The server has **no list of channels**. A channel is just the string in each
 client's `channel` field (`""` = lobby). The three channels (General, Lounge,
@@ -102,13 +103,20 @@ you can't accidentally signal across channels.
 
 ---
 
-## Chat (channel-scoped)
+## Chat (global)
 
-| Event          | Direction                    | Payload                                                    | Receiver does                                          |
-| -------------- | ---------------------------- | ---------------------------------------------------------- | ------------------------------------------------------ |
-| `chat:message` | C→S                          | `text`                                                     | —                                                      |
-| `chat:message` | S→channel (sender included)  | `channel`, `id`, `from`, `name`, `colour`, `text`, `ts`    | Append to that channel's messages.                     |
-| `chat:history` | S→joiner only                | `channel`, `messages: ChatMessage[]` (always present, may be `[]`) | Replace that channel's messages.             |
+| Event          | Direction                                    | Payload                                                    | Receiver does          |
+| -------------- | -------------------------------------------- | ---------------------------------------------------------- | ---------------------- |
+| `chat:message` | C→S                                          | `text`                                                     | —                      |
+| `chat:message` | S→everyone (sender included)                 | `id`, `from`, `name`, `colour`, `text`, `ts`               | Append to the messages. |
+| `chat:history` | S→newcomer, right after `session:welcome`    | `messages: ChatMessage[]` (always present, may be `[]`)    | Replace the messages.  |
+
+Chat is **not tied to voice channels**: neither event has a `channel`, anyone
+connected can post (lobby included), and switching voice channel doesn't touch
+it. `chat:history` is a **connect-time** frame — you get it once, immediately
+after `session:welcome` (queued under the same lock as chat broadcasts, so a
+message sent while you connect is either in the history or arrives after it,
+never lost) — not on voice-channel join.
 
 `ChatMessage` is `{ id, from, name, colour, text, ts }`:
 
@@ -120,13 +128,11 @@ you can't accidentally signal across channels.
 Rules:
 
 - The client sends **only** `text`. The server stamps everything else.
-- The sender gets their own message back via the channel broadcast — **don't**
-  add it optimistically.
-- The server trims `text`, drops empty/whitespace-only messages, caps it at 2000
-  characters, and ignores chat from anyone in the lobby.
-- Each channel keeps its last **30** messages in memory (lost on restart, kept
-  when the channel empties). Joining a non-lobby channel sends you `chat:history`
-  right after the `user:change_channel` broadcast.
+- The sender gets their own message back via the broadcast — **don't** add it
+  optimistically.
+- The server trims `text`, drops empty/whitespace-only messages and caps it at
+  2000 characters.
+- The server keeps the last **30** messages in memory (lost on restart).
 
 ---
 

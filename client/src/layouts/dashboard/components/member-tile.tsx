@@ -32,7 +32,7 @@ const MyTileMenu = observer(() => {
         <MoreHorizontal className="size-3.5" />
       </DropdownMenuTrigger>
       <DropdownMenuContent side="right" align="start" className="min-w-36">
-        <DropdownMenuItem onSelect={() => presence.joinChannel("")}>
+        <DropdownMenuItem onSelect={() => store.ui.leaveVoice()}>
           <LogOut />
           leave channel
         </DropdownMenuItem>

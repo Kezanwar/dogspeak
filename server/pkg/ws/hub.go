@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// chatHistoryLimit is how many recent messages each channel keeps.
+// chatHistoryLimit is how many recent chat messages the server keeps.
 const chatHistoryLimit = 30
 
 // Hub is all the server state there is: a flat map of every connected client,
@@ -17,20 +17,19 @@ const chatHistoryLimit = 30
 // fields on each Client (channel/name/colour), so only touch those through hub
 // methods.
 //
-// chat holds each channel's last chatHistoryLimit messages, also under mu. It's
-// in-memory only (lost on restart) and kept when a channel empties, so
-// rejoining still shows recent history.
+// chat holds the last chatHistoryLimit messages of the ONE global text chat,
+// also under mu. In-memory only (lost on restart). Chat is independent of voice
+// channels: everyone connected can read and post, lobby included.
 type Hub struct {
 	mu      sync.Mutex
 	clients map[string]*Client
-	chat    map[string][]ChatMessage
+	chat    []ChatMessage
 }
 
 // NewHub returns an empty hub ready to accept connections.
 func NewHub() *Hub {
 	return &Hub{
 		clients: make(map[string]*Client),
-		chat:    make(map[string][]ChatMessage),
 	}
 }
 
@@ -39,7 +38,27 @@ func NewHub() *Hub {
 func (h *Hub) add(c *Client) map[string]UserInfo {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.addLocked(c)
+}
 
+// join registers a newcomer and queues their session:welcome followed by the
+// chat:history, all under the lock chat broadcasts also take — so a message
+// posted at the same instant is either in the history snapshot or queued
+// strictly after it, never before it (where the history would wipe it out).
+func (h *Hub) join(c *Client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	roster := h.addLocked(c)
+	c.trySend(encode(Message{Type: EventSessionWelcome, To: c.id, Users: roster}))
+	b, _ := json.Marshal(historyMessage{
+		Type:     EventChatHistory,
+		Messages: append([]ChatMessage{}, h.chat...),
+	})
+	c.trySend(b)
+}
+
+func (h *Hub) addLocked(c *Client) map[string]UserInfo {
 	h.clients[c.id] = c
 
 	roster := make(map[string]UserInfo, len(h.clients))
@@ -64,51 +83,31 @@ func (h *Hub) changeChannel(c *Client, channel string) {
 	h.mu.Unlock()
 	slog.Debug("channel change", "id", c.id, "channel", channel)
 	h.broadcastAll(c.id, encode(Message{Type: EventUserChangeChannel, From: c.id, Channel: channel}))
-
-	if channel != "" {
-		h.sendHistory(c, channel)
-	}
 }
 
-// sendHistory sends c the channel's recent chat. The snapshot and the send
-// happen under the lock that chat broadcasts also take, so the history can't
-// land after (and wipe out) a live message that's newer than it.
-func (h *Hub) sendHistory(c *Client, channel string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if c.channel != channel {
-		return // they've already moved on
-	}
-	msgs := append([]ChatMessage{}, h.chat[channel]...)
-	b, _ := json.Marshal(historyMessage{Type: EventChatHistory, Channel: channel, Messages: msgs})
-	c.trySend(b)
-}
-
-// postChat stamps a message from c, stores it in c's channel's ring buffer, and
-// sends it to everyone in that channel INCLUDING c (the sender sees their own
-// message via this echo). Ignored in the lobby. text must already be cleaned.
+// postChat stamps a message from c, stores it in the global ring buffer, and
+// sends it to EVERY connected client including c (the sender sees their own
+// message via this echo). Chat isn't tied to voice channels, so anyone can
+// post — lobby included. text must already be cleaned.
 func (h *Hub) postChat(c *Client, text string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	channel := c.channel
-	if channel == "" {
-		return
-	}
 	cm := ChatMessage{
 		ID: randID(), From: c.id, Name: c.name, Colour: c.colour,
 		Text: text, TS: time.Now().UnixMilli(),
 	}
 
-	buf := append(h.chat[channel], cm)
-	if len(buf) > chatHistoryLimit {
-		buf = append([]ChatMessage(nil), buf[len(buf)-chatHistoryLimit:]...) // drop oldest
+	h.chat = append(h.chat, cm)
+	if len(h.chat) > chatHistoryLimit {
+		h.chat = append([]ChatMessage(nil), h.chat[len(h.chat)-chatHistoryLimit:]...) // drop oldest
 	}
-	h.chat[channel] = buf
 
-	h.broadcastChannelLocked(channel, chatFrame(channel, cm))
-	slog.Debug("chat message", "id", c.id, "channel", channel, "len", len(text))
+	frame := chatFrame(cm)
+	for _, cl := range h.clients {
+		cl.trySend(frame)
+	}
+	slog.Debug("chat message", "id", c.id, "len", len(text))
 }
 
 // changeName updates a client's name and broadcasts the delta.
@@ -152,17 +151,6 @@ func (h *Hub) relayToPeer(from *Client, toID string, msg []byte) {
 		return
 	}
 	to.trySend(msg)
-}
-
-// broadcastChannelLocked sends a message to EVERY client in channel, sender
-// included — unlike broadcastAll, which is for presence and skips the sender.
-// Caller must hold h.mu.
-func (h *Hub) broadcastChannelLocked(channel string, msg []byte) {
-	for _, c := range h.clients {
-		if c.channel == channel {
-			c.trySend(msg)
-		}
-	}
 }
 
 // broadcastAll sends a message to every connected client except exclude.

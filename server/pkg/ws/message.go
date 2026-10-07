@@ -25,9 +25,9 @@ const (
 	EventPeerAnswer    = "peer:answer"
 	EventPeerCandidate = "peer:candidate"
 
-	// Text chat — channel-scoped, like signalling. Never in the lobby.
-	EventChatMessage = "chat:message" // C->S: just text. S->channel (incl. sender): the stamped message
-	EventChatHistory = "chat:history" // S->joiner only: that channel's recent messages
+	// Text chat — ONE global chat, independent of voice channels (lobby included).
+	EventChatMessage = "chat:message" // C->S: just text. S->everyone (incl. sender): the stamped message
+	EventChatHistory = "chat:history" // S->newcomer, right after session:welcome: the recent messages
 )
 
 // ChatMessage is one chat line. The server snapshots the sender's name and
@@ -72,17 +72,17 @@ type Message struct {
 }
 
 // historyMessage is the chat:history frame. It's its own type (not Message) so
-// `messages` is always present, as [] when the channel has no history yet.
+// `messages` is always present, as [] when there's no history yet.
 type historyMessage struct {
 	Type     string        `json:"type"`
-	Channel  string        `json:"channel"`
 	Messages []ChatMessage `json:"messages"`
 }
 
-// chatFrame builds the chat:message broadcast for one stored message.
-func chatFrame(channel string, cm ChatMessage) []byte {
+// chatFrame builds the chat:message broadcast for one stored message. Chat is
+// global, so it carries no channel.
+func chatFrame(cm ChatMessage) []byte {
 	return encode(Message{
-		Type: EventChatMessage, Channel: channel, ID: cm.ID, From: cm.From,
+		Type: EventChatMessage, ID: cm.ID, From: cm.From,
 		Name: cm.Name, Colour: cm.Colour, Text: cm.Text, TS: cm.TS,
 	})
 }

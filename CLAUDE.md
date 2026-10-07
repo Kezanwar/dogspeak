@@ -25,7 +25,10 @@ Monorepo: `server/` (Go signalling server) + `client/` (React SPA).
   `PresenceStore.setName/setColour/joinChannel`, never raw `socket.send` for these.
 - **Channels are frontend-owned vocabulary** (`general`, `lounge`, `afk`; afk has no audio).
   The server treats `channel` as an opaque string. `""` = lobby, and is OMITTED on the
-  wire (treat absent as `""`). One channel at a time; chat + audio share channel membership.
+  wire (treat absent as `""`). One voice channel at a time.
+- **Text chat is global**, not tied to voice channels (usable from the lobby). The main panel's
+  *view* (`ui.view`: text or a voice channel) is separate from voice membership (`presence.myChannel`);
+  changing the view must never join/leave voice.
 
 ## Server (`server/`, Go)
 
