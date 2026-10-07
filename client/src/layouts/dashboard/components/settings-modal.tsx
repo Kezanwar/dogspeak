@@ -15,6 +15,7 @@ import { Label } from "@app/components/ui/label";
 import { cn } from "@app/lib/utils";
 import { contrastingShade } from "@app/lib/colour";
 import ColourAvatar from "@app/components/colour-avatar";
+import MicPicker from "@app/layouts/dashboard/components/mic-picker";
 import store from "@app/stores";
 import { NAME_MAX_LENGTH, PROFILE_COLOURS } from "@app/stores/profile";
 
@@ -23,18 +24,18 @@ type Props = {
   onOpenChange: (open: boolean) => void;
 };
 
-const ProfileModal = ({ open, onOpenChange }: Props) => {
+const SettingsModal = ({ open, onOpenChange }: Props) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         {/* mounted only while open, so the draft resets from the store each time */}
-        {open && <ProfileForm onDone={() => onOpenChange(false)} />}
+        {open && <SettingsForm onDone={() => onOpenChange(false)} />}
       </DialogContent>
     </Dialog>
   );
 };
 
-const ProfileForm = ({ onDone }: { onDone: () => void }) => {
+const SettingsForm = ({ onDone }: { onDone: () => void }) => {
   const { profile } = store;
   const [name, setName] = useState(profile.name);
   const [colour, setColour] = useState(profile.colour);
@@ -52,8 +53,8 @@ const ProfileForm = ({ onDone }: { onDone: () => void }) => {
   return (
     <form onSubmit={onSubmit} className="grid gap-5">
       <DialogHeader>
-        <DialogTitle>profile</DialogTitle>
-        <DialogDescription>how your mates see you.</DialogDescription>
+        <DialogTitle>settings</DialogTitle>
+        <DialogDescription>how your mates see and hear you.</DialogDescription>
       </DialogHeader>
 
       <div className="flex items-center gap-3">
@@ -100,6 +101,8 @@ const ProfileForm = ({ onDone }: { onDone: () => void }) => {
         </div>
       </div>
 
+      <MicPicker />
+
       <DialogFooter>
         <Button type="button" variant="ghost" onClick={onDone}>
           cancel
@@ -112,4 +115,4 @@ const ProfileForm = ({ onDone }: { onDone: () => void }) => {
   );
 };
 
-export default ProfileModal;
+export default SettingsModal;
