@@ -11,6 +11,11 @@ import store, { observer } from "@app/stores";
 import { cn } from "@app/lib/utils";
 import { isSpeaking } from "@app/lib/speaking";
 
+// Speaking highlight: one fixed green for everyone (Tailwind green-500). It's
+// mid-luminance, so the ring reads on both the light and dark sidebar.
+const SPEAKING_GREEN = "#22c55e";
+const SPEAKING_GLOW = "rgb(34 197 94 / 0.55)";
+
 // Actions on your OWN tile. Only "leave channel" for now (mute/volume come with
 // audio), so it's only rendered while you're actually in a channel.
 const MyTileMenu = observer(() => {
@@ -41,7 +46,7 @@ type Props = {
 };
 
 // Its own observer reading only its own roster entry, so a name/colour change
-// (or, later, a speaking flip) re-renders this tile and not the whole list.
+// (or a speaking flip from VAD) re-renders this tile and not the whole list.
 const MemberTile = observer(({ id, speaking = isSpeaking(id) }: Props) => {
   const user = store.presence.users.get(id);
   if (!user) return null;
@@ -53,11 +58,11 @@ const MemberTile = observer(({ id, speaking = isSpeaking(id) }: Props) => {
       <ColourAvatar
         name={user.name}
         colour={user.colour}
-        className="size-6 rounded-full text-[11px] transition-shadow duration-150"
+        className="size-6 rounded-full text-[11px] motion-safe:transition-shadow motion-safe:duration-150"
         style={{
-          // ring (with a sidebar-coloured gap) + soft glow in the member's colour
+          // green ring (with a sidebar-coloured gap) + soft green glow
           boxShadow: speaking
-            ? `0 0 0 2px var(--sidebar), 0 0 0 4px ${user.colour}, 0 0 12px 4px ${user.colour}`
+            ? `0 0 0 2px var(--sidebar), 0 0 0 4px ${SPEAKING_GREEN}, 0 0 10px 4px ${SPEAKING_GLOW}`
             : undefined,
         }}
       />

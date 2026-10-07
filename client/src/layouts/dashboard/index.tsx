@@ -6,6 +6,8 @@ import { Outlet } from 'react-router';
 import AuthGuard from '@app/hocs/auth-guard';
 import store, { observer } from '@app/stores';
 import { startAudio } from '@app/audio/audio';
+import { startChannelCues } from '@app/audio/cues';
+import MicBlockedBanner from '@app/components/mic-blocked-banner';
 
 // Opens the presence socket once we're authenticated and closes it on unmount
 // (logout / leaving the dashboard). Keyed only on the auth flag, so re-renders
@@ -19,7 +21,9 @@ const PresenceConnection: FC = observer(() => {
     presence.connect(profile.name, profile.colour);
     // The audio mesh follows presence (my channel + its members).
     const stopAudio = startAudio(store);
+    const stopCues = startChannelCues(store); // join/leave blips
     return () => {
+      stopCues();
       stopAudio(); // close peers, release the mic
       presence.disconnect();
     };
@@ -38,6 +42,7 @@ const DashboardLayout: FC = () => {
           <div className="bg-background text-foreground flex h-svh flex-col">
             <DashboardHeader />
             <main className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+              <MicBlockedBanner />
               <Outlet />
             </main>
           </div>
