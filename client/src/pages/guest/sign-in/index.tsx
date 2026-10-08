@@ -48,10 +48,10 @@ const SignIn = () => {
   };
 
   return (
-    <div className="flex min-h-svh items-center gap-38 flex-col justify-start p-4">
+    <div className="flex min-h-svh items-center gap-6 flex-col justify-center p-4">
       <FormProvider {...methods}>
         {/* No bottom margin: the artwork carries its own padding in the viewBox. */}
-        <div className="pt-12 text-center">
+        <div className="text-center">
           <h2 className="text-2xl -mb-2">dogspeak</h2>
           <DogHeadset className="text-foreground/80 mx-auto w-40 sm:w-48" />
         </div>
