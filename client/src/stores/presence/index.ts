@@ -176,13 +176,29 @@ class PresenceStore {
     socket.connect({ name, colour, uuid });
   }
 
+  /**
+   * A newer session for my uuid took over (session:superseded frame or the
+   * 4001 close — the socket has already stopped reconnecting). Tear
+   * everything down HERE, explicitly, not via the dashboard's unmount:
+   * WebRTC media is peer-to-peer and doesn't need the WS, so until the peer
+   * connections close and the mic stops, this tab would keep sending and
+   * receiving audio with nobody looking at it.
+   */
   setSuperseded = action(() => {
+    if (this.superseded) return;
+    audio.teardown(); // close every peer connection (output) + stop the mic (input)
+    socket.disconnect(); // drop the dead socket now; no reconnect either way
+    // Clear my presence so the audio reaction, if it runs again before the
+    // dashboard unmounts, syncs to "no channel" (teardown), never rebuilds.
+    this.reset();
+    this.rootStore.chat.reset();
     this.superseded = true;
   });
 
   /**
    * "continue here": drop the superseded gate. The dashboard remounts and
-   * connects afresh, which in turn supersedes the other tab (newest wins).
+   * connects afresh — socket.connect() clears the no-reconnect flag the
+   * eviction set — which in turn supersedes the other tab (newest wins).
    */
   continueHere() {
     this.superseded = false;
