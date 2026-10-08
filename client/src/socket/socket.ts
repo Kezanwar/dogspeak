@@ -68,7 +68,7 @@ class SocketClient {
 
     const { name, colour, uuid } = this.#params;
     const qs = new URLSearchParams({ name, colour, uuid });
-    const ws = new WebSocket(`${WS_URL}/ws?${qs.toString()}`);
+    const ws = new WebSocket(`${WS_URL}?${qs.toString()}`);
     this.#ws = ws;
 
     // Every handler ignores a socket that's no longer current — e.g. one closed

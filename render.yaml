@@ -1,0 +1,20 @@
+# Render blueprint: one Docker web service serving the app, /api and /ws on a
+# single origin. Secrets marked sync: false are entered in the dashboard.
+services:
+  - type: web
+    name: dogspeak
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: ROOM_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: LOG_FORMAT
+        value: json
+      # PORT is injected by Render.

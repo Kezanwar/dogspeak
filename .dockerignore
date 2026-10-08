@@ -1,0 +1,9 @@
+.git
+.github
+.claude
+**/node_modules
+**/.env
+**/.env.*
+client/dist
+client/tsconfig.tsbuildinfo
+server/bin

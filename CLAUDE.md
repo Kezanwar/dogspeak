@@ -32,7 +32,10 @@ Monorepo: `server/` (Go signalling server) + `client/` (React SPA).
 
 ## Server (`server/`, Go)
 
-- Packages under `pkg/`: `ws` (hub/client/router/message), `auth`, `jwt`, `middleware`, `respond`. Entry: `cmd/api`.
+- Packages under `pkg/`: `ws` (hub/client/router/message), `auth`, `jwt`, `middleware`, `respond`, `web` (embedded SPA). Entry: `cmd/api`.
+- **Single origin, no CORS.** Prod: Go serves the built SPA (`go:embed`, `pkg/web/dist` — keep the committed
+  placeholder `index.html`) as the router's NotFound handler, after `/api` and `/ws`. Dev: Vite proxies `/api` + `/ws`
+  to `:8080`. `/ws` accepts same-origin handshakes only. Deploy = one Docker image (root `Dockerfile`, `render.yaml`).
 - `make dev` runs it (loads `.env`); `make test` runs tests. Always `gofmt`, `go vet`, `go test ./...` before a PR.
 - Structured logging via `slog`. JSON errors via `respond.Error`. No database — sessions are stateless JWT cookies.
 
@@ -42,7 +45,7 @@ Monorepo: `server/` (Go signalling server) + `client/` (React SPA).
 - State: MobX + mobx-react-lite. Wrap store-reading components in `observer` (from `@app/stores`).
   Mutate observables only in actions; use `runInAction` after `await`.
 - UI: Tailwind v4 + shadcn/ui (`client/src/components/ui`).
-- HTTP: axios, `baseURL` `${BASE_URL}/api`, `withCredentials: true`. Socket: singleton in `src/socket/socket.ts`; types in `src/socket/events.ts` (mirrors `docs/events.md`).
+- HTTP: axios, relative `baseURL` `/api` (`VITE_API_BASE_URL` empty), `withCredentials: true`. WS URL derives from `location`. Socket: singleton in `src/socket/socket.ts`; types in `src/socket/events.ts` (mirrors `docs/events.md`).
 - **Spelling: British `colour`** everywhere (wire fields + variables). **UI labels are lowercase** ("general", "lounge", "afk").
 - Run `tsc`/build before a PR.
 
