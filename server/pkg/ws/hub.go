@@ -144,19 +144,40 @@ func (h *Hub) postChat(c *Client, text string) {
 }
 
 // changeName updates a client's name and broadcasts the delta.
+//
+// It also rewrites the name on every stored chat message by this author (by
+// uuid), so chat:history for newcomers carries the latest name even once the
+// author has left. Clients patch their own copies on the same event.
 func (h *Hub) changeName(c *Client, name string) {
 	h.mu.Lock()
 	c.name = name
+	h.rewriteChatLocked(c, func(m *ChatMessage) { m.Name = name })
 	h.mu.Unlock()
 	h.broadcastAll(c.id, encode(Message{Type: EventUserChangeName, From: c.id, Name: name}))
 }
 
-// changeColour updates a client's colour and broadcasts the delta.
+// changeColour updates a client's colour and broadcasts the delta, rewriting
+// the colour on the author's stored chat messages (see changeName).
 func (h *Hub) changeColour(c *Client, colour string) {
 	h.mu.Lock()
 	c.colour = colour
+	h.rewriteChatLocked(c, func(m *ChatMessage) { m.Colour = colour })
 	h.mu.Unlock()
 	h.broadcastAll(c.id, encode(Message{Type: EventUserChangeColour, From: c.id, Colour: colour}))
+}
+
+// rewriteChatLocked applies set to every buffered chat message authored by
+// c's uuid. In place, O(buffer). A fallback uuid (== the connection id) is
+// skipped — only real client uuids identify an author across messages.
+func (h *Hub) rewriteChatLocked(c *Client, set func(*ChatMessage)) {
+	if c.uuid == "" || c.uuid == c.id {
+		return
+	}
+	for i := range h.chat {
+		if h.chat[i].AuthorID == c.uuid {
+			set(&h.chat[i])
+		}
+	}
 }
 
 // setMuted records a client's self-mute and broadcasts it as user:mute or
