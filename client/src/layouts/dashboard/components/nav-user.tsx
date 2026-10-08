@@ -1,17 +1,7 @@
 import { useState } from "react";
 import { LogOut } from "lucide-react";
-import { useNavigate } from "react-router";
 
 import ColourAvatar from "@app/components/colour-avatar";
-import { Button } from "@app/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@app/components/ui/dialog";
 import {
   SidebarMenu,
   SidebarMenuButton,
@@ -19,25 +9,12 @@ import {
 } from "@app/components/ui/sidebar";
 import store, { observer } from "@app/stores";
 import SettingsModal from "@app/layouts/dashboard/components/settings-modal";
+import SignOutConfirm from "@app/layouts/dashboard/components/sign-out-confirm";
 
 const NavUser = observer(() => {
-  const nav = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
   const me = store.profile;
-
-  // Only after confirming.
-  const onLogout = async () => {
-    setSigningOut(true);
-    try {
-      await store.auth.logout();
-    } finally {
-      setSigningOut(false);
-      setConfirmOpen(false);
-    }
-    nav("/sign-in");
-  };
 
   return (
     <SidebarMenu>
@@ -73,35 +50,7 @@ const NavUser = observer(() => {
 
       <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
 
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent role="alertdialog" className="sm:max-w-xs">
-          <DialogHeader>
-            <DialogTitle>sign out?</DialogTitle>
-            <DialogDescription>
-              you'll leave your channel and need the room password to get
-              back in.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setConfirmOpen(false)}
-              autoFocus // safe default for a destructive confirm
-            >
-              cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={onLogout}
-              disabled={signingOut}
-            >
-              sign out
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SignOutConfirm open={confirmOpen} onOpenChange={setConfirmOpen} />
     </SidebarMenu>
   );
 });
