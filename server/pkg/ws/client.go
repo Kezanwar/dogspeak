@@ -14,7 +14,7 @@ const (
 	sendBuffer = 16
 
 	// Connection safety limits.
-	maxMessageSize = 8192             // bytes; an SDP offer is the biggest legit payload
+	maxMessageSize = 16384            // bytes; fits an SDP offer, or a max-length chat message of multi-byte chars
 	pongWait       = 60 * time.Second // no pong within this window => connection is dead
 	pingPeriod     = 50 * time.Second // ping this often; must be < pongWait
 	writeWait      = 10 * time.Second // max time allowed to write a single frame
@@ -28,20 +28,34 @@ type Client struct {
 	name    string
 	colour  string
 	channel string
-	conn    *websocket.Conn
-	send    chan []byte
-	hub     *Hub
+	muted   bool // self-muted mic; a fresh connection starts unmuted
+	// uuid is the client's self-generated identity (sent at connect, kept in
+	// its localStorage across reloads). Identity-LITE, not auth: it's
+	// client-supplied and spoofable like the name — the room password is
+	// the trust boundary. Falls back to id if the client didn't send one.
+	uuid string
+	conn *websocket.Conn
+	send chan []byte
+	hub  *Hub
 }
 
-func newClient(hub *Hub, conn *websocket.Conn, name, colour string) *Client {
+// maxUUIDLen bounds the client-supplied uuid (a crypto.randomUUID is 36).
+const maxUUIDLen = 64
+
+func newClient(hub *Hub, conn *websocket.Conn, name, colour, uuid string) *Client {
 	if name == "" {
 		name = "anon"
 	}
 	if colour == "" {
 		colour = "#8a8a8a"
 	}
+	id := randID()
+	if uuid == "" || len(uuid) > maxUUIDLen {
+		uuid = id // older/odd client: fall back to the ephemeral connection id
+	}
 	return &Client{
-		id:      randID(),
+		id:      id,
+		uuid:    uuid,
 		name:    name,
 		colour:  colour,
 		channel: "", // start in the lobby, not in any channel
@@ -123,14 +137,13 @@ func (c *Client) readPump() {
 	}
 }
 
-// handshake sends the newcomer the full roster, then announces them (sitting in
-// the lobby) to everyone else. No WebRTC happens here — that starts once they
-// join a channel.
+// handshake sends the newcomer the full roster and the global chat history,
+// then announces them (sitting in the lobby) to everyone else. No WebRTC
+// happens here — that starts once they join a voice channel.
 func (c *Client) handshake() {
-	roster := c.hub.add(c)
-	c.trySend(encode(Message{Type: EventSessionWelcome, To: c.id, Users: roster}))
+	c.hub.join(c) // queues session:welcome then chat:history
 	c.hub.broadcastAll(c.id, encode(Message{
-		Type: EventUserJoined, From: c.id,
+		Type: EventUserJoined, From: c.id, UUID: c.uuid,
 		Name: c.name, Colour: c.colour, Channel: c.channel,
 	}))
 }

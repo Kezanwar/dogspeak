@@ -1,9 +1,10 @@
-import { Spinner } from "../ui/spinner";
+import Spinner from "@app/components/spinner";
 
+// Boot splash while the session check (auth.initialize) is in flight.
 const LoadingScreen = () => {
   return (
-    <div className="bg-background flex h-[100vh] w-[100vw] flex-col items-center justify-center">
-      <Spinner size={40} />
+    <div className="bg-background text-foreground flex h-svh w-full flex-col items-center justify-center">
+      <Spinner size={28} label="checking your session" />
     </div>
   );
 };

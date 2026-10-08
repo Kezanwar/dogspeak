@@ -1,11 +1,20 @@
 package ws
 
+import (
+	"strings"
+	"unicode/utf8"
+)
+
+// maxChatLen caps a chat message, in characters (runes) after trimming.
+const maxChatLen = 2000
+
 // route decides what to do with an inbound message based on its Type. It's the
 // Go side of the events.md contract and the mirror of the frontend's store.
 //
 // Two buckets:
 //   - signalling: relayed to ONE peer, and only if they share the sender's channel
 //   - presence:   applied to the sender, then broadcast to EVERYONE (server-wide)
+//   - chat:       stamped + stored, then sent to EVERYONE (global, not per channel)
 func route(c *Client, m Message) {
 	// Always stamp the real sender. Never trust a client-supplied From.
 	m.From = c.id
@@ -25,8 +34,28 @@ func route(c *Client, m Message) {
 		c.hub.changeName(c, m.Name)
 	case EventUserChangeColour:
 		c.hub.changeColour(c, m.Colour)
+	case EventUserMute:
+		c.hub.setMuted(c, true)
+	case EventUserUnmute:
+		c.hub.setMuted(c, false)
+
+	// Chat: global, sender included. Empty messages are dropped.
+	case EventChatMessage:
+		if text := cleanChat(m.Text); text != "" {
+			c.hub.postChat(c, text)
+		}
 
 	default:
 		// Unknown event type: ignore. While developing you might log it.
 	}
+}
+
+// cleanChat trims whitespace and caps the length at maxChatLen runes (never
+// splitting a multi-byte character). Returns "" for an empty message.
+func cleanChat(text string) string {
+	text = strings.TrimSpace(text)
+	if utf8.RuneCountInString(text) > maxChatLen {
+		text = strings.TrimSpace(string([]rune(text)[:maxChatLen]))
+	}
+	return text
 }

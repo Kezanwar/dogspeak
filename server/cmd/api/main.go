@@ -8,9 +8,13 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/lmittmann/tint"
+	"github.com/mattn/go-isatty"
 
 	"dogspeak-server/pkg/auth"
+	"dogspeak-server/pkg/health"
 	"dogspeak-server/pkg/middleware"
+	"dogspeak-server/pkg/web"
 	"dogspeak-server/pkg/ws"
 )
 
@@ -20,28 +24,35 @@ func main() {
 	a := auth.New(auth.Config{
 		Password:     mustEnv("ROOM_PASSWORD"),
 		Secret:       []byte(mustEnv("SESSION_SECRET")),
-		CookieDomain: os.Getenv("COOKIE_DOMAIN"),           // "" for localhost dev
-		CookieSecure: os.Getenv("COOKIE_SECURE") == "true", // false for http://localhost
+		CookieDomain: os.Getenv("COOKIE_DOMAIN"), // "" for localhost dev
+		CookieSecure: cookieSecure(),             // false for http://localhost
 		TTL:          7 * 24 * time.Hour,
 	})
 
 	hub := ws.NewHub()
 
-	// One allowlist drives both the CORS middleware and the WS CheckOrigin.
-	origins := splitOrigins(os.Getenv("CORS_ORIGINS"))
-
 	r := mux.NewRouter()
 
 	api := r.PathPrefix("/api").Subrouter()
+
+	// Liveness for Render's health check: unauthenticated (it sends no cookie),
+	// and it proves the Go router is up, unlike "/", which is just index.html.
+	api.Handle("/health", health.Handler(hub.ClientCount)).Methods(http.MethodGet)
 
 	api.HandleFunc("/session", a.Login).Methods(http.MethodPost)
 	api.HandleFunc("/session", a.Session).Methods(http.MethodGet)
 	api.HandleFunc("/session", a.Logout).Methods(http.MethodDelete)
 
-	r.Handle("/ws", a.Require(ws.Handler(hub, origins)))
+	r.Handle("/ws", a.Require(ws.Handler(hub)))
 
-	// CORS outermost (answers preflight before we'd log it); Logger wraps the router.
-	handler := middleware.Cors(origins)(middleware.Logger(r))
+	// Everything else is the built SPA (embedded). As the NotFound handler it
+	// only runs when no route above matched, so /api and /ws always win (and
+	// a wrong method on a real route still gets mux's 405). Single origin
+	// everywhere — Go serves the app in prod, Vite proxies to us in dev — so
+	// there's no CORS.
+	r.NotFoundHandler = web.Handler()
+
+	handler := middleware.Logger(r)
 
 	addr := ":" + port()
 	slog.Info("dogspeak server starting", "addr", addr)
@@ -53,6 +64,8 @@ func main() {
 
 // setupLogger configures the global slog logger from env: LOG_LEVEL
 // (debug|info|warn|error, default info) and LOG_FORMAT (text|json, default text).
+// Text is tint's dev format: dimmed timestamp first, level coloured, and plain
+// (no ANSI) when stdout isn't a terminal. JSON is untouched for prod.
 func setupLogger() {
 	level := slog.LevelInfo
 	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
@@ -64,12 +77,30 @@ func setupLogger() {
 		level = slog.LevelError
 	}
 
-	opts := &slog.HandlerOptions{Level: level}
-	var h slog.Handler = slog.NewTextHandler(os.Stdout, opts)
+	var h slog.Handler
 	if strings.ToLower(os.Getenv("LOG_FORMAT")) == "json" {
-		h = slog.NewJSONHandler(os.Stdout, opts)
+		h = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+	} else {
+		fd := os.Stdout.Fd()
+		h = tint.NewHandler(os.Stdout, &tint.Options{
+			Level:       level,
+			TimeFormat:  time.DateTime,
+			NoColor:     !isatty.IsTerminal(fd) && !isatty.IsCygwinTerminal(fd),
+			ReplaceAttr: colourDebugLevel,
+		})
 	}
 	slog.SetDefault(slog.New(h))
+}
+
+// colourDebugLevel gives DBG its own colour (bright cyan); tint leaves it
+// uncoloured by default, and INF/WRN/ERR are already green/yellow/red.
+func colourDebugLevel(groups []string, a slog.Attr) slog.Attr {
+	if len(groups) == 0 && a.Key == slog.LevelKey {
+		if lvl, ok := a.Value.Any().(slog.Level); ok && lvl < slog.LevelInfo {
+			return tint.Attr(14, a)
+		}
+	}
+	return a
 }
 
 // mustEnv returns the env var or exits — secrets must be set, never defaulted.
@@ -90,13 +121,9 @@ func port() string {
 	return "8080"
 }
 
-// splitOrigins turns a comma-separated CORS_ORIGINS value into a clean list.
-func splitOrigins(s string) []string {
-	var out []string
-	for _, p := range strings.Split(s, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
+// cookieSecure: Secure session cookie over HTTPS (prod), off for
+// http://localhost dev, where a Secure cookie wouldn't be set at all.
+// COOKIE_SECURE=true or ENV=production turns it on.
+func cookieSecure() bool {
+	return os.Getenv("COOKIE_SECURE") == "true" || os.Getenv("ENV") == "production"
 }

@@ -26,6 +26,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "input-otp": "^1.4.2",
+    "loading-dev": "0.3.5",
     "lucide-react": "^0.509.0",
     "mobx": "^6.13.5",
     "mobx-react-lite": "^4.1.0",

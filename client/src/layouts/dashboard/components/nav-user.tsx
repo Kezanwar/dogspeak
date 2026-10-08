@@ -1,29 +1,41 @@
+import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { useNavigate } from "react-router";
 
-import { Avatar, AvatarFallback } from "@app/components/ui/avatar";
+import ColourAvatar from "@app/components/colour-avatar";
+import { Button } from "@app/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@app/components/ui/dialog";
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@app/components/ui/sidebar";
 import store, { observer } from "@app/stores";
-
-// TODO: name + colour will come from a small "me" store (localStorage-backed),
-// editable via the profile modal, and emitted over the socket on change.
-const me = { name: "Kez Anwar", colour: "#8a8a8a" };
+import SettingsModal from "@app/layouts/dashboard/components/settings-modal";
 
 const NavUser = observer(() => {
   const nav = useNavigate();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const me = store.profile;
 
-  const initial = me.name.charAt(0).toUpperCase();
-
-  const openProfile = () => {
-    // TODO: open the name / colour modal
-  };
-
+  // Only after confirming.
   const onLogout = async () => {
-    await store.auth.logout();
+    setSigningOut(true);
+    try {
+      await store.auth.logout();
+    } finally {
+      setSigningOut(false);
+      setConfirmOpen(false);
+    }
     nav("/sign-in");
   };
 
@@ -32,31 +44,64 @@ const NavUser = observer(() => {
       <SidebarMenuItem className="flex items-center gap-1">
         <SidebarMenuButton
           size="lg"
-          onClick={openProfile}
+          onClick={() => setSettingsOpen(true)}
           className="flex-1"
-          tooltip="edit profile"
+          tooltip="settings"
         >
-          <Avatar className="h-8 w-8 rounded-lg">
-            <AvatarFallback
-              className="rounded-lg text-white"
-              style={{ backgroundColor: me.colour }}
-            >
-              {initial}
-            </AvatarFallback>
-          </Avatar>
+          <ColourAvatar
+            name={me.name}
+            colour={me.colour}
+            className="size-8 rounded-lg text-sm"
+          />
           <div className="grid flex-1 text-left text-sm leading-tight">
             <span className="truncate font-medium">{me.name}</span>
+            <span className="text-muted-foreground truncate text-xs">
+              settings
+            </span>
           </div>
         </SidebarMenuButton>
 
         <SidebarMenuButton
-          onClick={onLogout}
-          tooltip="log out"
+          onClick={() => setConfirmOpen(true)}
+          tooltip="sign out"
+          aria-label="sign out"
           className="w-8 justify-center"
         >
           <LogOut className="size-4" />
         </SidebarMenuButton>
       </SidebarMenuItem>
+
+      <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent role="alertdialog" className="sm:max-w-xs">
+          <DialogHeader>
+            <DialogTitle>sign out?</DialogTitle>
+            <DialogDescription>
+              you'll leave your channel and need the room password to get
+              back in.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setConfirmOpen(false)}
+              autoFocus // safe default for a destructive confirm
+            >
+              cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={onLogout}
+              disabled={signingOut}
+            >
+              sign out
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SidebarMenu>
   );
 });

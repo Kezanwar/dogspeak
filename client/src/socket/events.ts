@@ -14,18 +14,24 @@ export const EVENT = {
   UserChangeChannel: "user:change_channel",
   UserChangeName: "user:change_name",
   UserChangeColour: "user:change_colour",
+  UserMute: "user:mute",
+  UserUnmute: "user:unmute",
   PeerOffer: "peer:offer",
   PeerAnswer: "peer:answer",
   PeerCandidate: "peer:candidate",
+  ChatMessage: "chat:message",
+  ChatHistory: "chat:history",
 } as const;
 
 export type EventType = (typeof EVENT)[keyof typeof EVENT];
 
 /** One person's public presence. `channel: ''` means the lobby (no channel). */
 export interface UserInfo {
+  uuid: string; // client identity (stable across reloads; spoofable, not auth)
   name: string;
   colour: string;
   channel: string;
+  muted: boolean; // self-muted (from the roster; user:mute / user:unmute after)
 }
 
 // ─── Server → client (incoming) ────────────────────────────────────────────
@@ -37,13 +43,18 @@ export interface WelcomeMessage {
   users: Record<string, UserInfo>; // id-keyed; includes you
 }
 
+// NB: the server's envelope tags `channel` with omitempty, so the lobby ("")
+// arrives as a MISSING field on user:joined / user:change_channel. Treat
+// `undefined` as "" when applying these.
+
 /** user:joined — someone connected (lands in the lobby). */
 export interface UserJoinedMessage {
   type: typeof EVENT.UserJoined;
   from: string;
+  uuid?: string;
   name: string;
   colour: string;
-  channel: string;
+  channel?: string;
 }
 
 /** user:left — someone disconnected. */
@@ -56,7 +67,7 @@ export interface UserLeftMessage {
 export interface UserChangeChannelMessage {
   type: typeof EVENT.UserChangeChannel;
   from: string;
-  channel: string;
+  channel?: string;
 }
 
 /** user:change_name — someone renamed. */
@@ -71,6 +82,17 @@ export interface UserChangeColourMessage {
   type: typeof EVENT.UserChangeColour;
   from: string;
   colour: string;
+}
+
+/** user:mute / user:unmute — someone toggled self-mute. No payload: the
+ *  event type carries the state (a `muted: false` would be lost to omitempty). */
+export interface UserMuteMessage {
+  type: typeof EVENT.UserMute;
+  from: string;
+}
+export interface UserUnmuteMessage {
+  type: typeof EVENT.UserUnmute;
+  from: string;
 }
 
 /** peer:offer / peer:answer — SDP relayed from one channel-mate. */
@@ -95,6 +117,30 @@ export interface PeerCandidateMessage {
   data: RTCIceCandidateInit;
 }
 
+/** One chat line. name + colour are snapshotted by the server at send time. */
+export interface ChatMessage {
+  id: string;
+  from: string; // sender connection id at send time
+  authorId: string; // sender client uuid — ownership + live name/colour lookup
+  name: string;
+  colour: string;
+  text: string;
+  ts: number; // unix millis
+}
+
+/** chat:message — a message in the global chat (your own included, via echo).
+ *  Chat isn't tied to voice channels, so there's no `channel`. */
+export interface ChatMessageMessage extends ChatMessage {
+  type: typeof EVENT.ChatMessage;
+}
+
+/** chat:history — the recent global messages, sent once on connect, right
+ *  after session:welcome (not on voice-channel join). */
+export interface ChatHistoryMessage {
+  type: typeof EVENT.ChatHistory;
+  messages: ChatMessage[];
+}
+
 /** Everything the server can send. Narrow on `.type`. */
 export type ServerMessage =
   | WelcomeMessage
@@ -103,9 +149,13 @@ export type ServerMessage =
   | UserChangeChannelMessage
   | UserChangeNameMessage
   | UserChangeColourMessage
+  | UserMuteMessage
+  | UserUnmuteMessage
   | PeerOfferMessage
   | PeerAnswerMessage
-  | PeerCandidateMessage;
+  | PeerCandidateMessage
+  | ChatMessageMessage
+  | ChatHistoryMessage;
 
 // ─── Client → server (outgoing) ─────────────────────────────────────────────
 // No `from` — the server stamps it. Presence changes carry just their payload.
@@ -121,6 +171,13 @@ export interface ChangeNameOut {
 export interface ChangeColourOut {
   type: typeof EVENT.UserChangeColour;
   colour: string;
+}
+
+export interface MuteOut {
+  type: typeof EVENT.UserMute;
+}
+export interface UnmuteOut {
+  type: typeof EVENT.UserUnmute;
 }
 
 export interface PeerOfferOut {
@@ -139,11 +196,20 @@ export interface PeerCandidateOut {
   data: RTCIceCandidateInit;
 }
 
+/** Chat: just the text — the server stamps sender, channel, id and time. */
+export interface ChatMessageOut {
+  type: typeof EVENT.ChatMessage;
+  text: string;
+}
+
 /** Everything we can send. */
 export type ClientMessage =
   | ChangeChannelOut
   | ChangeNameOut
   | ChangeColourOut
+  | MuteOut
+  | UnmuteOut
   | PeerOfferOut
   | PeerAnswerOut
-  | PeerCandidateOut;
+  | PeerCandidateOut
+  | ChatMessageOut;
