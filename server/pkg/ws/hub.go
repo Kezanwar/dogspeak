@@ -35,6 +35,14 @@ func NewHub() *Hub {
 
 // add registers a client and returns a snapshot of the whole roster (including
 // the newcomer), keyed by id. Done under one lock so the snapshot is consistent.
+// ClientCount is the number of connected sockets (a cheap lock-guarded read,
+// for the health endpoint).
+func (h *Hub) ClientCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.clients)
+}
+
 func (h *Hub) add(c *Client) map[string]UserInfo {
 	h.mu.Lock()
 	defer h.mu.Unlock()

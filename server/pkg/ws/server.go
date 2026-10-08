@@ -3,6 +3,8 @@ package ws
 import (
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/gorilla/websocket"
 )
@@ -10,27 +12,18 @@ import (
 // Handler returns an http.HandlerFunc that upgrades a request to a WebSocket and
 // wires it into the hub.
 //
-// allowedOrigins gates which sites may open a socket. CORS does NOT apply to
-// WebSocket handshakes, so this CheckOrigin is the WS equivalent of the CORS
-// allowlist — pass it the same origins, including your frontend. Without it,
-// gorilla's default would reject cross-origin connections outright (blocking your
-// own frontend); with the naive "return true" any site could hijack a session.
+// Only same-origin handshakes are accepted: the browser's Origin host must
+// equal the request's Host. Everything is same-origin now — in prod Go serves
+// the SPA itself, and in dev the Vite proxy forwards /ws without rewriting
+// Host — so no allowlist is needed. CORS doesn't apply to WebSocket
+// handshakes, so this check is what stops another site opening a socket with
+// a logged-in user's cookie.
 //
 // Gate it with auth in main.go:
 //
-//	r.Handle("/ws", authService.Require(ws.Handler(hub, origins)))
-func Handler(hub *Hub, allowedOrigins []string) http.HandlerFunc {
-	allowed := make(map[string]struct{}, len(allowedOrigins))
-	for _, o := range allowedOrigins {
-		allowed[o] = struct{}{}
-	}
-
-	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			_, ok := allowed[r.Header.Get("Origin")]
-			return ok
-		},
-	}
+//	r.Handle("/ws", authService.Require(ws.Handler(hub)))
+func Handler(hub *Hub) http.HandlerFunc {
+	upgrader := websocket.Upgrader{CheckOrigin: sameOrigin}
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
@@ -48,4 +41,19 @@ func Handler(hub *Hub, allowedOrigins []string) http.HandlerFunc {
 		go c.writePump()
 		c.readPump() // blocks on this goroutine until the client disconnects
 	}
+}
+
+// sameOrigin reports whether the handshake's Origin host matches its Host.
+// No Origin header means a non-browser client (no ambient-cookie risk from
+// another site), which gorilla also allows by default.
+func sameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
 }
