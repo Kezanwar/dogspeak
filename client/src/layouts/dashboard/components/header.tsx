@@ -8,8 +8,8 @@ const DashboardHeader = () => {
     <div className="p-3">
       <div className="bg-paper text-foreground flex items-center justify-between">
         <SidebarTrigger />
+        <ConnectionStatus />
         <div className="flex items-center gap-3">
-          <ConnectionStatus />
           <ToggleTheme />
         </div>
       </div>
