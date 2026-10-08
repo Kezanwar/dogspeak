@@ -8,7 +8,7 @@ class SocketClient {
   #ws: WebSocket | null = null;
   #messageHandler: MessageHandler | null = null;
   #statusHandler: StatusHandler | null = null;
-  #params: { name: string; colour: string } | null = null;
+  #params: { name: string; colour: string; uuid: string } | null = null;
   #intentional = false;
   #retry = 0;
   #retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -24,7 +24,7 @@ class SocketClient {
   }
 
   /** Open the socket. The session cookie rides the handshake automatically. */
-  connect(p: { name: string; colour: string }) {
+  connect(p: { name: string; colour: string; uuid: string }) {
     this.#params = p;
     this.#retry = 0;
     this.#intentional = false;
@@ -66,8 +66,8 @@ class SocketClient {
       return; // already up or coming up
     }
 
-    const { name, colour } = this.#params;
-    const qs = new URLSearchParams({ name, colour });
+    const { name, colour, uuid } = this.#params;
+    const qs = new URLSearchParams({ name, colour, uuid });
     const ws = new WebSocket(`${WS_URL}/ws?${qs.toString()}`);
     this.#ws = ws;
 

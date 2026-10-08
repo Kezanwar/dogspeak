@@ -63,7 +63,7 @@ func (h *Hub) addLocked(c *Client) map[string]UserInfo {
 
 	roster := make(map[string]UserInfo, len(h.clients))
 	for id, cl := range h.clients {
-		roster[id] = UserInfo{Name: cl.name, Colour: cl.colour, Channel: cl.channel, Muted: cl.muted}
+		roster[id] = UserInfo{UUID: cl.uuid, Name: cl.name, Colour: cl.colour, Channel: cl.channel, Muted: cl.muted}
 	}
 	return roster
 }
@@ -94,7 +94,7 @@ func (h *Hub) postChat(c *Client, text string) {
 	defer h.mu.Unlock()
 
 	cm := ChatMessage{
-		ID: randID(), From: c.id, Name: c.name, Colour: c.colour,
+		ID: randID(), From: c.id, AuthorID: c.uuid, Name: c.name, Colour: c.colour,
 		Text: text, TS: time.Now().UnixMilli(),
 	}
 

@@ -102,7 +102,7 @@ const VoiceTile = observer(({ id, live }: { id: string; live: boolean }) => {
     <li className="bg-card relative flex w-40 flex-col items-center gap-4 rounded-2xl border px-4 pt-8 pb-6 sm:w-48">
       {!isMe && (
         <PeerMenu
-          id={id}
+          uuid={user.uuid}
           name={user.name}
           side="bottom"
           triggerClassName={TILE_MENU_TRIGGER}
@@ -116,7 +116,7 @@ const VoiceTile = observer(({ id, live }: { id: string; live: boolean }) => {
       />
       <div className="flex max-w-full items-center gap-1.5 text-sm">
         {user.muted && <MutedIcon />}
-        {!isMe && audio.isLocallyMuted(id) && <LocallyMutedIcon />}
+        {!isMe && audio.isLocallyMuted(user.uuid) && <LocallyMutedIcon />}
         <span className="truncate font-medium">{user.name}</span>
         {isMe && <span className="text-muted-foreground shrink-0">(you)</span>}
       </div>

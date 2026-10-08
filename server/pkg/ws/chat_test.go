@@ -11,7 +11,7 @@ import (
 // testClient builds a hub-registered client with no socket; frames it's sent
 // pile up in its send channel for the test to read.
 func testClient(h *Hub, id, name, channel string) *Client {
-	c := &Client{id: id, name: name, colour: "#ff8800", channel: channel, send: make(chan []byte, 64), hub: h}
+	c := &Client{id: id, uuid: "uuid-" + id, name: name, colour: "#ff8800", channel: channel, send: make(chan []byte, 64), hub: h}
 	h.add(c)
 	return c
 }
@@ -107,7 +107,7 @@ func TestChatLengthCapped(t *testing.T) {
 
 // newcomer builds an unregistered client, as the ws handler does before handshake.
 func newcomer(h *Hub, id, name string) *Client {
-	return &Client{id: id, name: name, colour: "#0088ff", send: make(chan []byte, 64), hub: h}
+	return &Client{id: id, uuid: "uuid-" + id, name: name, colour: "#0088ff", send: make(chan []byte, 64), hub: h}
 }
 
 func TestHistoryDeliveredOnConnectRightAfterWelcome(t *testing.T) {

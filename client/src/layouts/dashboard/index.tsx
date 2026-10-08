@@ -18,7 +18,7 @@ const PresenceConnection: FC = observer(() => {
   useEffect(() => {
     if (!authed) return;
     const { presence, profile } = store;
-    presence.connect(profile.name, profile.colour);
+    presence.connect(profile.name, profile.colour, profile.uuid);
     // The audio mesh follows presence (my channel + its members).
     const stopAudio = startAudio(store);
     const stopCues = startChannelCues(store); // join/leave blips

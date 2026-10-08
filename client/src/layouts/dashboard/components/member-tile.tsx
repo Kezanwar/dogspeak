@@ -62,7 +62,7 @@ const MemberTile = observer(({ id, speaking = isSpeaking(id) }: Props) => {
       />
       {/* Self-mute (broadcast, everyone sees it) vs muted-by-me (local). */}
       {user.muted && <MutedIcon />}
-      {!isMe && store.audio.isLocallyMuted(id) && <LocallyMutedIcon />}
+      {!isMe && store.audio.isLocallyMuted(user.uuid) && <LocallyMutedIcon />}
       <span
         className={cn(
           "truncate text-xs",
@@ -74,7 +74,11 @@ const MemberTile = observer(({ id, speaking = isSpeaking(id) }: Props) => {
       {isMe ? (
         <MyTileMenu />
       ) : (
-        <PeerMenu id={id} name={user.name} triggerClassName={MENU_TRIGGER} />
+        <PeerMenu
+          uuid={user.uuid}
+          name={user.name}
+          triggerClassName={MENU_TRIGGER}
+        />
       )}
     </li>
   );

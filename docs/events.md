@@ -31,6 +31,7 @@ _client_ chooses not to capture audio while in it.
 { "type": "...", "to": "...", "from": "...",
   "name": "...", "colour": "...", "channel": "...",
   "data": { ... }, "users": { "<id>": { ... } },
+  "uuid": "...", "authorId": "...",
   "id": "...", "text": "...", "ts": 0 }
 ```
 
@@ -41,10 +42,34 @@ _client_ chooses not to capture audio while in it.
 - `users` — the roster, an object keyed by id, on `welcome` only. The id is the
   key, so it isn't repeated inside each value — mirroring the frontend's id-keyed
   observable map.
-- `id` / `text` / `ts` — chat fields (`ts` is unix millis), on `chat:message` only.
+- `uuid` — the newcomer's client identity, on `user:joined` only (see Identity).
+- `authorId` / `id` / `text` / `ts` — chat fields (`ts` is unix millis), on `chat:message` only.
 
 Empty fields are **omitted** on the wire. In particular `channel: ""` (the lobby)
 never appears — treat a missing `channel` as `""`.
+
+## Identity (client uuid — identity-LITE, not auth)
+
+Each browser generates a uuid once (`crypto.randomUUID()`), keeps it in
+localStorage next to its name/colour (it survives reloads and re-login; it is
+never cleared on logout), and sends it **at connect** as a `uuid` query param
+on `/ws`, alongside `name` and `colour`. It's a connect param, not a message.
+
+- The server stores it on the connection and exposes it as `uuid` in the
+  roster's `UserInfo` and on `user:joined`, and as `authorId` on chat messages.
+  A client that sends none (or junk over 64 chars) gets its connection id as its uuid.
+- **It is spoofable** — client-supplied, exactly like `name`. It is NOT a
+  security boundary: the room password (session cookie) is. Fine for a few
+  trusted mates; don't build anything on it that assumes it can't be faked.
+- What it's for: chat ownership that survives a reload ("is this mine?" =
+  `authorId === my uuid`), rendering each message's name/colour **live** from
+  whoever currently has that uuid (falling back to the message's own snapshot
+  when they've disconnected), and keying your **local** per-person mute/volume
+  so it sticks across their reconnects. Those local settings are persisted in
+  your browser and never broadcast.
+
+The connection id (`from`, roster keys, `to` for signalling) is still the
+per-connection address; the uuid is the per-person identity behind it.
 
 ---
 
@@ -52,8 +77,8 @@ never appears — treat a missing `channel` as `""`.
 
 | Event                 | Direction  | Payload                                    | Receiver does                                                      |
 | --------------------- | ---------- | ------------------------------------------ | ------------------------------------------------------------------ |
-| `session:welcome`     | S→newcomer | `users: { "<id>": {name,colour,channel,muted} }` | Load the roster into the store (id-keyed); your own id is in `to`. |
-| `user:joined`         | S→others   | `from`, `name`, `colour`, `channel`        | Add this person to the roster (they're in the lobby).              |
+| `session:welcome`     | S→newcomer | `users: { "<id>": {uuid,name,colour,channel,muted} }` | Load the roster into the store (id-keyed); your own id is in `to`. |
+| `user:joined`         | S→others   | `from`, `uuid`, `name`, `colour`, `channel` | Add this person to the roster (they're in the lobby).             |
 | `user:left`           | S→others   | `from`                                     | Remove them; if you had a peer connection to them, close it.       |
 | `user:change_channel` | both ways  | `channel` (`""` = lobby)                   | Update that person's channel. See mesh rules below.                |
 | `user:change_name`    | both ways  | `name`                                     | Update that person's name.                                         |
@@ -73,7 +98,9 @@ because a fresh connection is always unmuted. Mute is a presence fact about the
 connection, so it survives channel switches.
 
 Local-only audio controls — muting someone _for yourself_, per-person volume,
-your output volume and mic gain — never cross the wire. One coupling: dragging your
+your output volume and mic gain — never cross the wire. Per-person mute/volume
+are keyed by the other person's **uuid** (not their connection id) and
+persisted locally, so they survive both their reconnects and your reloads. One coupling: dragging your
 mic gain to 0% self-mutes you (sending the ordinary `user:mute`) and raising it
 from 0% unmutes — no extra event or field.
 
@@ -84,8 +111,8 @@ A `session:welcome` frame looks like this (`to` is your own id; `users` includes
   "type": "session:welcome",
   "to": "a1b2c3",
   "users": {
-    "a1b2c3": { "name": "Kez", "colour": "#ff8800", "channel": "general", "muted": false },
-    "d4e5f6": { "name": "Dave", "colour": "#0088ff", "channel": "", "muted": true }
+    "a1b2c3": { "uuid": "7f3c…", "name": "Kez", "colour": "#ff8800", "channel": "general", "muted": false },
+    "d4e5f6": { "uuid": "b91e…", "name": "Dave", "colour": "#0088ff", "channel": "", "muted": true }
   }
 }
 ```
@@ -108,7 +135,7 @@ you can't accidentally signal across channels.
 | Event          | Direction                                    | Payload                                                    | Receiver does          |
 | -------------- | -------------------------------------------- | ---------------------------------------------------------- | ---------------------- |
 | `chat:message` | C→S                                          | `text`                                                     | —                      |
-| `chat:message` | S→everyone (sender included)                 | `id`, `from`, `name`, `colour`, `text`, `ts`               | Append to the messages. |
+| `chat:message` | S→everyone (sender included)                 | `id`, `from`, `authorId`, `name`, `colour`, `text`, `ts`   | Append to the messages. |
 | `chat:history` | S→newcomer, right after `session:welcome`    | `messages: ChatMessage[]` (always present, may be `[]`)    | Replace the messages.  |
 
 Chat is **not tied to voice channels**: neither event has a `channel`, anyone
@@ -118,11 +145,14 @@ after `session:welcome` (queued under the same lock as chat broadcasts, so a
 message sent while you connect is either in the history or arrives after it,
 never lost) — not on voice-channel join.
 
-`ChatMessage` is `{ id, from, name, colour, text, ts }`:
+`ChatMessage` is `{ id, from, authorId, name, colour, text, ts }`:
 
 - `id` — short server-generated id (use it as the React key).
-- `name` / `colour` — **snapshotted** by the server when the message is sent, so
-  history renders correctly after the sender renames or leaves.
+- `authorId` — the sender's client uuid (see Identity). Ownership is
+  `authorId === my uuid`; render name/colour **live** from the connected user
+  with that uuid.
+- `name` / `colour` — **snapshotted** by the server when the message is sent:
+  the fallback when the author isn't currently connected.
 - `ts` — unix millis, stamped by the server.
 
 Rules:
