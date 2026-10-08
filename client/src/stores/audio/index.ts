@@ -27,6 +27,9 @@ class AudioStore {
   // In an audio channel but the mic couldn't be captured (denied/unavailable).
   micBlocked = false;
 
+  // getUserMedia in flight (joining an audio channel, or a banner retry).
+  micAcquiring = false;
+
   // Chosen input, persisted. "" = system default. The label is a hint for
   // when deviceIds rotate (they can change between sessions).
   micDeviceId = "";
@@ -78,6 +81,8 @@ class AudioStore {
     this.#loadLocalAudio();
     makeObservable(this, {
       micBlocked: observable,
+      micAcquiring: observable,
+      setMicAcquiring: action,
       micDeviceId: observable,
       micDeviceLabel: observable,
       devices: observable.ref,
@@ -119,6 +124,10 @@ class AudioStore {
 
   setMicBlocked(blocked: boolean) {
     this.micBlocked = blocked;
+  }
+
+  setMicAcquiring(acquiring: boolean) {
+    this.micAcquiring = acquiring;
   }
 
   /** True when the browser is hiding device labels (no mic permission yet). */

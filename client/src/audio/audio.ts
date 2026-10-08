@@ -151,6 +151,7 @@ class AudioManager {
     for (const id of [...this.#monitors.keys()]) this.#unmonitor(id);
     this.#store?.clearSpeaking();
     this.#store?.setMicBlocked(false); // only meaningful inside an audio channel
+    this.#store?.setMicAcquiring(false);
     this.#store?.setActiveMic(null);
     this.#rawStream?.getTracks().forEach((t) => {
       t.onended = null;
@@ -298,6 +299,7 @@ class AudioManager {
 
   // ── mic ────────────────────────────────────────────────────────
   async #acquireMic(gen: number): Promise<void> {
+    this.#store?.setMicAcquiring(true);
     try {
       const stream = await openMic(await this.#preferredDeviceId());
       if (gen !== this.#generation) {
@@ -313,6 +315,10 @@ class AudioManager {
       // The persistent banner explains and offers a retry.
       console.warn("[audio] no microphone:", err);
       this.#store?.setMicBlocked(true);
+    } finally {
+      // A superseded attempt leaves the flag to the current one (teardown
+      // already cleared it).
+      if (gen === this.#generation) this.#store?.setMicAcquiring(false);
     }
   }
 
