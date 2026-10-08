@@ -10,6 +10,7 @@ import { useLocation, useNavigate } from "react-router";
 import { errorHandler } from "@app/lib/axios";
 import { toast } from "sonner";
 import SHSFUIButton from "@app/components/shsfui/button";
+import DogHeadset from "@app/components/dog-headset";
 
 const SignIn = () => {
   const nav = useNavigate();
@@ -49,6 +50,11 @@ const SignIn = () => {
       <FormProvider {...methods}>
         <Card className="w-full max-w-sm">
           <CardContent className="text-center">
+            {/* The hero: soft line (foreground at 80%) on either theme; the
+                accent stays the default speaking green. ~160px on phones,
+                ~192px from sm up. No bottom margin: the artwork has its own
+                padding inside the viewBox. */}
+            <DogHeadset className="text-foreground/80 mx-auto w-40 sm:w-48" />
             <CardTitle className="mb-2">dogspeak</CardTitle>
             <p className="text-muted-foreground text-sm">
               enter the password to join.
