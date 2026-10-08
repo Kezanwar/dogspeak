@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Check, LogOut } from "lucide-react";
+import { Check, LogOut, Mic, User } from "lucide-react";
 
 import { Button } from "@app/components/ui/button";
 import {
@@ -98,9 +98,15 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
       </DialogHeader>
 
       <Tabs value={tab} onValueChange={onTab} className="gap-4">
-        <TabsList className="w-full">
-          <TabsTrigger value="profile">profile</TabsTrigger>
-          <TabsTrigger value="audio">audio</TabsTrigger>
+        <TabsList variant="underline">
+          <TabsTrigger variant="underline" value="profile">
+            <User />
+            profile
+          </TabsTrigger>
+          <TabsTrigger variant="underline" value="audio">
+            <Mic />
+            audio
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile" className={PANEL}>
