@@ -23,8 +23,15 @@ class AuthStore {
   isAuthenticated = false;
   isInitialized = false;
 
-  // Runs once on load: is there already a valid session cookie?
+  // Runs once on load: is there already a valid session cookie? Maintenance
+  // is checked first — if it's on, park (the session routes would 503) and
+  // leave isInitialized false; this runs again once maintenance lifts.
   initialize = async () => {
+    const { maintenance } = this.rootStore;
+    if ((await maintenance.check()) === true) {
+      maintenance.enter();
+      return;
+    }
     let ok = false;
     try {
       const res = await getSession();

@@ -173,6 +173,7 @@ class PresenceStore {
     });
     socket.onStatus(this.setConnected);
     socket.onSuperseded(this.setSuperseded);
+    socket.setReconnectCheck(this.rootStore.maintenance.allowReconnect);
     socket.connect({ name, colour, uuid });
   }
 

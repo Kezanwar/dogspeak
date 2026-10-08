@@ -54,5 +54,22 @@ separate static site. `render.yaml` is the blueprint; its health check is
 | `COOKIE_SECURE`  | `true` (or `ENV=production`, already set by the image)  |
 | `PORT`           | provided by Render                                      |
 
+| `MAINTENANCE`    | `true`/`1` parks every client on a maintenance screen (see below); unset otherwise |
+
 Optional: `LOG_LEVEL` (`debug|info|warn|error`), `LOG_FORMAT` (`text|json`),
 `COOKIE_DOMAIN` (leave blank).
+
+### Maintenance mode
+
+Set `MAINTENANCE=true` (or `1`) and restart/redeploy to park everyone:
+
+- Every client's socket drops; the client asks `GET /api/status`, sees
+  `{"maintenance":true}`, tears down audio (peer connections closed, mic
+  released) and shows a full-screen "getting an upgrade" screen, polling
+  `/api/status` every ~7s instead of reconnecting. Fresh page loads go
+  straight to that screen.
+- While on, the server answers **503** to the `/ws` upgrade and to
+  `/api/session` (no new logins). It still serves the SPA, `/api/status`
+  and `/api/health` — health stays **200** so Render doesn't flap the service.
+- Unset it (or `false`) and redeploy: within a poll, every client reloads its
+  session and reconnects on its own, landing in the lobby.

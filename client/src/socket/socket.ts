@@ -13,6 +13,7 @@ class SocketClient {
   #messageHandler: MessageHandler | null = null;
   #statusHandler: StatusHandler | null = null;
   #supersededHandler: (() => void) | null = null;
+  #reconnectCheck: (() => Promise<boolean>) | null = null;
   #params: { name: string; colour: string; uuid: string } | null = null;
   #intentional = false;
   #retry = 0;
@@ -34,6 +35,15 @@ class SocketClient {
    */
   onSuperseded(fn: () => void) {
     this.#supersededHandler = fn;
+  }
+
+  /**
+   * Asked on every unintentional drop, before the backoff reconnect:
+   * resolve false to stop reconnecting (maintenance parks the app and polls
+   * /api/status instead). Without one, drops always reconnect.
+   */
+  setReconnectCheck(fn: () => Promise<boolean>) {
+    this.#reconnectCheck = fn;
   }
 
   /** Open the socket. The session cookie rides the handshake automatically. */
@@ -74,6 +84,16 @@ class SocketClient {
     if (this.#retryTimer) clearTimeout(this.#retryTimer);
     this.#retryTimer = null;
     this.#supersededHandler?.();
+  }
+
+  // A drop (not a logout / supersede): ask the reconnect check first — a
+  // refused upgrade during maintenance lands here too — then back off.
+  async #reconnect() {
+    if (this.#reconnectCheck && !(await this.#reconnectCheck())) return;
+    if (this.#intentional || this.#ws || this.#retryTimer) return; // changed meanwhile
+    const delay = Math.min(1000 * 2 ** this.#retry, 10000); // backoff, capped 10s
+    this.#retry += 1;
+    this.#retryTimer = setTimeout(this.#open, delay);
   }
 
   // arrow field so setTimeout(this.#open, …) keeps `this`
@@ -126,11 +146,7 @@ class SocketClient {
       if (e.code === CLOSE_SUPERSEDED) this.#superseded();
       this.#ws = null;
       this.#statusHandler?.(false);
-      if (!this.#intentional) {
-        const delay = Math.min(1000 * 2 ** this.#retry, 10000); // backoff, capped 10s
-        this.#retry += 1;
-        this.#retryTimer = setTimeout(this.#open, delay);
-      }
+      if (!this.#intentional) void this.#reconnect();
     };
 
     ws.onerror = () => {

@@ -17,4 +17,7 @@ services:
         value: "true"
       - key: LOG_FORMAT
         value: json
+      # "true" parks every client on the maintenance screen (see README).
+      - key: MAINTENANCE
+        value: "false"
       # PORT is injected by Render.

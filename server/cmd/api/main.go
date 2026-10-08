@@ -13,6 +13,7 @@ import (
 
 	"dogspeak-server/pkg/auth"
 	"dogspeak-server/pkg/health"
+	"dogspeak-server/pkg/maintenance"
 	"dogspeak-server/pkg/middleware"
 	"dogspeak-server/pkg/web"
 	"dogspeak-server/pkg/ws"
@@ -31,28 +32,12 @@ func main() {
 
 	hub := ws.NewHub()
 
-	r := mux.NewRouter()
+	maint := maintenance.FromEnv(os.Getenv("MAINTENANCE"))
+	if maint {
+		slog.Warn("MAINTENANCE mode is ON: /ws and session routes answer 503")
+	}
 
-	api := r.PathPrefix("/api").Subrouter()
-
-	// Liveness for Render's health check: unauthenticated (it sends no cookie),
-	// and it proves the Go router is up, unlike "/", which is just index.html.
-	api.Handle("/health", health.Handler(hub.ClientCount)).Methods(http.MethodGet)
-
-	api.HandleFunc("/session", a.Login).Methods(http.MethodPost)
-	api.HandleFunc("/session", a.Session).Methods(http.MethodGet)
-	api.HandleFunc("/session", a.Logout).Methods(http.MethodDelete)
-
-	r.Handle("/ws", a.Require(ws.Handler(hub)))
-
-	// Everything else is the built SPA (embedded). As the NotFound handler it
-	// only runs when no route above matched, so /api and /ws always win (and
-	// a wrong method on a real route still gets mux's 405). Single origin
-	// everywhere — Go serves the app in prod, Vite proxies to us in dev — so
-	// there's no CORS.
-	r.NotFoundHandler = web.Handler()
-
-	handler := middleware.Logger(r)
+	handler := middleware.Logger(routes(a, hub, maint))
 
 	addr := ":" + port()
 	slog.Info("dogspeak server starting", "addr", addr)
@@ -60,6 +45,43 @@ func main() {
 		slog.Error("server stopped", "err", err)
 		os.Exit(1)
 	}
+}
+
+// routes wires every endpoint. Split out of main so tests can drive the real
+// router (e.g. with maintenance on).
+func routes(a *auth.Auth, hub *ws.Hub, maint bool) http.Handler {
+	gate := maintenance.Gate(maint)
+
+	r := mux.NewRouter()
+
+	api := r.PathPrefix("/api").Subrouter()
+
+	// Liveness for Render's health check: unauthenticated (it sends no cookie),
+	// and it proves the Go router is up, unlike "/", which is just index.html.
+	// NEVER gated by maintenance — a 503 here would make Render flap the service.
+	api.Handle("/health", health.Handler(hub.ClientCount)).Methods(http.MethodGet)
+
+	// Maintenance status: unauthenticated, always 200 — the client polls it.
+	api.Handle("/status", maintenance.Status(maint)).Methods(http.MethodGet)
+
+	// Session routes and the socket are refused (503) during maintenance, so
+	// no new logins or connections happen. The gate sits outside auth so a
+	// parked client sees 503, not 401.
+	api.Handle("/session", gate(http.HandlerFunc(a.Login))).Methods(http.MethodPost)
+	api.Handle("/session", gate(http.HandlerFunc(a.Session))).Methods(http.MethodGet)
+	api.Handle("/session", gate(http.HandlerFunc(a.Logout))).Methods(http.MethodDelete)
+
+	r.Handle("/ws", gate(a.Require(ws.Handler(hub))))
+
+	// Everything else is the built SPA (embedded). As the NotFound handler it
+	// only runs when no route above matched, so /api and /ws always win (and
+	// a wrong method on a real route still gets mux's 405). Single origin
+	// everywhere — Go serves the app in prod, Vite proxies to us in dev — so
+	// there's no CORS. Served during maintenance too, so the page can load
+	// and show the maintenance screen.
+	r.NotFoundHandler = web.Handler()
+
+	return r
 }
 
 // setupLogger configures the global slog logger from env: LOG_LEVEL

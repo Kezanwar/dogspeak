@@ -35,13 +35,15 @@ const SignIn = () => {
       store.auth.authenticate();
       nav(state?.to || "/");
     } catch (error) {
-      errorHandler(error, (e) =>
+      errorHandler(error, (e) => {
+        // Maintenance began after this page loaded: park like everyone else.
+        if (e.statusCode === 503) return store.maintenance.enter();
         toast(e.message, {
           position: "bottom-left",
           icon: <TriangleAlert className="text-destructive mr-10" />,
           description: "Check the password and try again.",
-        }),
-      );
+        });
+      });
     }
   };
 
