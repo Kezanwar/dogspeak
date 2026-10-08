@@ -1,19 +1,19 @@
-import { cn } from '@app/lib/utils';
+import { cn } from "@app/lib/utils";
 
 type SpinnerProps = {
   size?: number;
   className?: string;
-  'aria-label'?: string;
+  "aria-label"?: string;
 };
 
 export function Spinner({
   size = 16,
   className,
-  'aria-label': ariaLabel = 'Loading...'
+  "aria-label": ariaLabel = "Loading...",
 }: SpinnerProps) {
   return (
     <svg
-      className={cn('text-foreground', className)}
+      className={cn("text-foreground", className)}
       style={{ width: size, height: size }}
       viewBox="0 0 24 24"
       fill="none"

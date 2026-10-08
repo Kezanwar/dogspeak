@@ -70,7 +70,7 @@ const RHFInput = ({
       </div>
 
       {error && (
-        <Typography className="mt-1 text-xs text-balance" color="destructive">
+        <Typography className="mt-2 text-xs text-balance" color="destructive">
           {error}
         </Typography>
       )}
