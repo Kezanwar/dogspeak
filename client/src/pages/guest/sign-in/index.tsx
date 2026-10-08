@@ -49,11 +49,11 @@ const SignIn = () => {
     <div className="flex min-h-svh items-center gap-38 flex-col justify-start p-4">
       <FormProvider {...methods}>
         {/* No bottom margin: the artwork carries its own padding in the viewBox. */}
-        <div className="pt-12">
+        <div className="pt-12 text-center">
+          <h2 className="text-2xl -mb-2">dogspeak</h2>
           <DogHeadset className="text-foreground/80 mx-auto w-40 sm:w-48" />
         </div>
         <div className="text-center">
-          <h2 className="text-2xl mb-4">dogspeak</h2>
           <p className="text-sm">enter the password to join.</p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="mt-4">
