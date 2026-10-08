@@ -196,11 +196,18 @@ class PresenceStore {
   });
 
   /**
-   * "continue here": drop the superseded gate. The dashboard remounts and
-   * connects afresh — socket.connect() clears the no-reconnect flag the
-   * eviction set — which in turn supersedes the other tab (newest wins).
+   * "continue here": reconnect this tab FRESH, landing in the lobby.
+   * - dismisses the superseded screen (the dashboard remounts);
+   * - its mount calls socket.connect(), which clears the no-reconnect flag
+   *   the eviction set and opens a new socket;
+   * - the server starts every connection in the lobby (channel ""), and we
+   *   deliberately don't restore the previous voice channel — presence was
+   *   reset on supersede, so there's nothing to rejoin. The view goes back to
+   *   the default text channel too, as on a fresh load.
+   * The new connection supersedes whichever tab is active now (newest wins).
    */
   continueHere() {
+    this.rootStore.ui.viewText();
     this.superseded = false;
   }
 
