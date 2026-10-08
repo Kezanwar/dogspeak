@@ -1,75 +1,126 @@
-# dogspeak
+# 🐕 dogspeak
 
-Browser-only voice chat for a handful of mates (WebRTC mesh). `server/` is the
-Go signalling server, `client/` the React SPA. `docs/events.md` is the
-WebSocket contract.
+Browser voice chat for the mates — so we can bin TeamSpeak.
 
-## One origin, everywhere
+A lean, self-hosted WebRTC voice app for a small group (~5). Audio is peer-to-peer; a small Go server only does introductions. Runs happily alongside the guild's Discord.
 
-The browser only ever talks to **one origin**, so the httpOnly session cookie
-is first-party (`SameSite=Lax`) and there is no CORS:
+---
 
-- **prod** — the Go server serves the built SPA (embedded with `go:embed`)
-  alongside `/api` and `/ws`.
-- **dev** — Vite serves the app on `:5173` with HMR and proxies only `/api`
-  and `/ws` to the Go server on `:8080` (`client/vite.config.ts`).
+## What it does
 
-The client uses relative URLs (`/api`, and `ws(s)://<page host>/ws`).
+- **Peer-to-peer voice** — join a channel and talk, open-mic. Audio flows directly between browsers (WebRTC mesh), so the server isn't in the path of your call.
+- **Voice + text channels** — a global text chat plus voice channels (`general`, `lounge`, `afk`), with Discord-style "viewing vs being in" (read the chat while you're talking in a channel).
+- **Live presence** — see who's connected, who's in which channel, and a green glow on whoever's speaking (local voice-activity detection).
+- **Mute & volume control** — self-mute (broadcast), mute/quieten individual people just for yourself, plus your own master output and mic-gain sliders. Persisted across refreshes.
+- **Grid view** — a tile per person in a voice channel, with per-person controls.
+- **Identity-lite** — a per-browser id keeps your chat messages "yours" across reloads and keeps names/colours live, with no database or accounts.
+- **One tab at a time** — opening a second tab takes over; the old one parks on a "connected elsewhere" screen.
+- **Maintenance mode** — flip an env flag to cleanly park everyone on a maintenance screen around a deploy; they auto-reconnect when it's off.
 
-## Dev (two processes, no Docker)
+---
 
-```sh
-# server — copy server/.env.example to server/.env and fill it in
-cd server && make dev          # :8080
+## How it works
 
-# client — copy client/.env.example to client/.env (VITE_API_BASE_URL empty)
-cd client && yarn && yarn dev  # http://localhost:5173  ← open this
+- **Audio is a p2p mesh** within a channel (STUN only — no TURN, no SFU). The Go server only handles signalling, presence and chat, so established calls survive a server restart.
+- **Single-origin** — in production the Go server embeds and serves the built web app, so the app, the API (`/api`) and the WebSocket (`/ws`) all share one origin. That keeps the auth cookie first-party and means there's no CORS.
+- **Auth** is a shared room password → a stateless JWT in an httpOnly cookie. It's a trust gate for mates, not real per-user accounts.
+- **The WebSocket contract is the source of truth**, kept in sync across three files: [`docs/events.md`](docs/events.md), `server/pkg/ws/message.go`, and `client/src/socket/events.ts`.
+
+---
+
+## Tech stack
+
+**Frontend** — React 19, Vite, TypeScript (strict), Tailwind v4, shadcn/ui, MobX, react-hook-form + yup, axios.
+
+**Backend** — Go — gorilla/websocket, gorilla/mux, golang-jwt, `slog` (+ tint for dev logs).
+
+**Deploy** — Docker (multi-stage) on Render, single service, single origin.
+
+---
+
+## Project structure
+
+```
+.
+├── client/        # React SPA (Vite)
+├── server/        # Go signalling server
+│   ├── cmd/api/   # entrypoint
+│   └── pkg/       # ws, auth, jwt, web (SPA embed), middleware, ...
+├── docs/
+│   └── events.md  # the WebSocket contract
+├── Dockerfile     # multi-stage: build client → build server (embeds dist) → run
+└── README.md
 ```
 
-Go compiles without a client build: `server/pkg/web/dist/index.html` is a
-committed placeholder for the embed. Go never serves the SPA in dev.
+---
 
-## Prod (one Docker image)
+## Local development
 
-```sh
-docker build -t dogspeak .
-docker run -p 8080:8080 -e ROOM_PASSWORD=… -e SESSION_SECRET=… dogspeak
+Dev runs as two processes, but the Vite dev server proxies `/api` and `/ws` through to the Go server, so the browser is effectively **single-origin** with HMR intact.
+
+**Prerequisites:** Go 1.24+, Node 22+, Yarn.
+
+```bash
+# 1. server — copy the example env and fill it in
+cp server/.env.example server/.env   # set ROOM_PASSWORD + SESSION_SECRET
+make run                             # or: cd server && go run ./cmd/api   (listens on :8080)
+
+# 2. client
+cd client && yarn install
+yarn dev                             # http://localhost:5173
 ```
 
-The multi-stage `Dockerfile` builds the client, embeds `client/dist` into the
-Go binary, and runs it on a distroless base. It sets `ENV=production`
-(Secure cookie) and JSON logs. Over plain http (e.g. the local `docker run`
-above) add `-e ENV=` so the cookie isn't Secure-only.
+Then open **http://localhost:5173** and log in with your `ROOM_PASSWORD`.
 
-### Render
+> `make dev` runs both together — see the `makefile` for the exact targets.
 
-One **Web Service** (Docker runtime) from the repo root `Dockerfile`, with no
-separate static site. `render.yaml` is the blueprint; its health check is
-`GET /api/health` (unauthenticated, returns `{"status":"ok","clients":N}`). Env:
+---
 
-| var              | value                                                   |
-| ---------------- | ------------------------------------------------------- |
-| `ROOM_PASSWORD`  | the room password (required)                            |
-| `SESSION_SECRET` | random secret for signing session cookies (required)    |
-| `COOKIE_SECURE`  | `true` (or `ENV=production`, already set by the image)  |
-| `PORT`           | provided by Render                                      |
+## Environment variables
 
-| `MAINTENANCE`    | `true`/`1` parks every client on a maintenance screen (see below); unset otherwise |
+**Server**
 
-Optional: `LOG_LEVEL` (`debug|info|warn|error`), `LOG_FORMAT` (`text|json`),
-`COOKIE_DOMAIN` (leave blank).
+| Variable         | Required | Default   | Notes                                              |
+| ---------------- | -------- | --------- | -------------------------------------------------- |
+| `ROOM_PASSWORD`  | ✅       | —         | Shared login password.                             |
+| `SESSION_SECRET` | ✅       | —         | JWT signing secret (use a long random string).     |
+| `PORT`           |          | `8080`    | Injected by Render in prod — don't hardcode there. |
+| `COOKIE_SECURE`  |          | `false`   | `true` in prod (HTTPS).                            |
+| `COOKIE_DOMAIN`  |          | _(blank)_ | Leave blank (host-only cookie).                    |
+| `MAINTENANCE`    |          | `false`   | `true` parks all clients on a maintenance screen.  |
+| `LOG_LEVEL`      |          | `info`    | `debug` \| `info` \| `warn` \| `error`.            |
+| `LOG_FORMAT`     |          | `text`    | `json` in prod.                                    |
 
-### Maintenance mode
+**Client** (`client/.env`)
 
-Set `MAINTENANCE=true` (or `1`) and restart/redeploy to park everyone:
+| Variable            | Notes                                                                      |
+| ------------------- | -------------------------------------------------------------------------- |
+| `VITE_API_BASE_URL` | Leave **empty** — the app uses relative URLs (single-origin / Vite proxy). |
 
-- Every client's socket drops; the client asks `GET /api/status`, sees
-  `{"maintenance":true}`, tears down audio (peer connections closed, mic
-  released) and shows a full-screen "getting an upgrade" screen, polling
-  `/api/status` every ~7s instead of reconnecting. Fresh page loads go
-  straight to that screen.
-- While on, the server answers **503** to the `/ws` upgrade and to
-  `/api/session` (no new logins). It still serves the SPA, `/api/status`
-  and `/api/health` — health stays **200** so Render doesn't flap the service.
-- Unset it (or `false`) and redeploy: within a poll, every client reloads its
-  session and reconnects on its own, landing in the lobby.
+---
+
+## Deploy (Render)
+
+Deployed as a single **Docker web service** (the multi-stage `Dockerfile` builds the client, then the Go binary with the built SPA embedded). Set the server env vars above (with `COOKIE_SECURE=true`, `LOG_FORMAT=json`), and leave `PORT` to Render.
+
+- **`main` is production.** The service auto-deploys new commits on `main`, so a merge to `main` is a live deploy.
+- **Deploying with people connected** will drop and re-establish their connections. To do it cleanly, set `MAINTENANCE=true` first (parks everyone), deploy, then set it back to `false`.
+
+---
+
+## Conventions
+
+- **Branching:** work on feature branches → PR into `develop`. Merge `develop` → `main` to release (that's what deploys).
+- **The WS contract** (`docs/events.md` ↔ `server/pkg/ws/message.go` ↔ `client/src/socket/events.ts`) must stay in sync whenever events change.
+- British **`colour`** spelling throughout; lowercase UI labels.
+- See `CLAUDE.md` for the architectural invariants.
+
+---
+
+## Scope (on purpose)
+
+Mates only (~5), mesh forever (no relay/SFU), open-mic, browser-only (no Electron), no database. It's deliberately small — if it ever needs accounts, cross-device identity or screen sharing, those are noted in the backlog, not built.
+
+---
+
+_A side project. No warranty — have fun._
