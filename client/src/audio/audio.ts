@@ -264,10 +264,13 @@ class AudioManager {
     const el = peer.audio;
     const store = this.#store;
     if (!el || !store) return;
-    el.muted = store.isLocallyMuted(id); // local only, never broadcast
+    // Local mute/volume are keyed by the peer's uuid, resolved from presence.
+    // Unknown yet → unmuted at full volume; the reaction re-applies once known.
+    const uuid = store.uuidOfConnection(id);
+    el.muted = uuid ? store.isLocallyMuted(uuid) : false; // local only, never broadcast
     el.volume = Math.min(
       1,
-      Math.max(0, store.outputVolume * store.volumeOf(id)),
+      Math.max(0, store.outputVolume * (uuid ? store.volumeOf(uuid) : 1)),
     );
   }
 
@@ -708,6 +711,10 @@ export function startAudio(root: RootStore): () => void {
       output: root.audio.outputVolume,
       muted: [...root.audio.localMuted.keys()].sort(),
       volumes: [...root.audio.peerVolume.entries()].sort(),
+      // connection id -> uuid, so a peer whose uuid arrives later is re-applied
+      uuids: [...root.presence.users.entries()]
+        .map(([id, u]) => `${id}:${u.uuid}`)
+        .sort(),
     }),
     () => audio.applyPeerAudio(),
     { equals: comparer.structural },

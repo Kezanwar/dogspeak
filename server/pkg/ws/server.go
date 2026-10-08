@@ -41,8 +41,9 @@ func Handler(hub *Hub, allowedOrigins []string) http.HandlerFunc {
 
 		name := r.URL.Query().Get("name")
 		colour := r.URL.Query().Get("colour")
+		uuid := r.URL.Query().Get("uuid") // client identity, see Client.uuid
 
-		c := newClient(hub, conn, name, colour)
+		c := newClient(hub, conn, name, colour, uuid)
 		slog.Info("ws connected", "id", c.id, "remote", r.RemoteAddr)
 		go c.writePump()
 		c.readPump() // blocks on this goroutine until the client disconnects

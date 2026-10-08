@@ -10,19 +10,20 @@ import {
 import store, { observer } from "@app/stores";
 
 type Props = {
-  id: string;
+  uuid: string; // the person's client uuid — local mute/volume are keyed by it
   name: string;
   triggerClassName: string;
   side?: "top" | "right" | "bottom" | "left";
 };
 
 // Actions on someone ELSE's tile. Both are LOCAL ONLY — nobody else knows:
-// mute them for yourself, and set how loud they are for you.
+// mute them for yourself, and set how loud they are for you. Keyed by their
+// uuid so it sticks across their reconnects (and is persisted for yours).
 const PeerMenu = observer(
-  ({ id, name, triggerClassName, side = "right" }: Props) => {
+  ({ uuid, name, triggerClassName, side = "right" }: Props) => {
     const { audio } = store;
-    const muted = audio.isLocallyMuted(id);
-    const volume = Math.round(audio.volumeOf(id) * 100);
+    const muted = audio.isLocallyMuted(uuid);
+    const volume = Math.round(audio.volumeOf(uuid) * 100);
 
     return (
       <DropdownMenu>
@@ -33,7 +34,7 @@ const PeerMenu = observer(
           <MoreHorizontal className="size-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent side={side} align="start" className="w-52">
-          <DropdownMenuItem onSelect={() => audio.toggleLocalMute(id)}>
+          <DropdownMenuItem onSelect={() => audio.toggleLocalMute(uuid)}>
             {muted ? <Volume2 /> : <VolumeX />}
             <span className="truncate">
               {muted ? `unmute ${name}` : `mute ${name}`}
@@ -54,7 +55,7 @@ const PeerMenu = observer(
               value={volume}
               aria-label={`volume for ${name}`}
               onChange={(e) =>
-                audio.setPeerVolume(id, Number(e.target.value) / 100)
+                audio.setPeerVolume(uuid, Number(e.target.value) / 100)
               }
               className="accent-primary w-full"
             />

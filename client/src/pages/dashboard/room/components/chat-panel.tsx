@@ -11,48 +11,58 @@ import store, { observer } from "@app/stores";
 
 const MAX_CHAT_LENGTH = 2000; // mirrors the server's cap
 
-type MessageRowProps = { message: ChatMessage; isMine: boolean };
-
 // Each message is one bubble: a header row (name chip + timestamp) with the
 // text beneath. Own messages sit on the right, everyone else's on the left.
 // The surface is the theme's muted token so it sits just off the page in light
 // and dark. Short messages hug their content (shrink-to-fit via self-start/end);
 // long ones wrap at ~50% of the panel, ~a third from lg up.
-const MessageRow = ({ message, isMine }: MessageRowProps) => (
-  <li
-    className={cn(
-      "bg-muted my-1 flex max-w-[50%] min-w-0 flex-col gap-2 rounded-2xl px-3 py-3 lg:max-w-[33%]",
-      isMine
-        ? "self-end rounded-br-md" // tail corner toward the sender's side
-        : "self-start rounded-bl-md",
-    )}
-  >
-    <div className="flex min-w-0 items-center gap-2">
-      {/* Chip matches the sender's avatar: their colour, readable same-hue shade. */}
-      <span
-        className="truncate rounded-full px-2 py-0.5 text-xs leading-tight font-semibold"
-        style={{
-          backgroundColor: message.colour,
-          color: contrastingShade(message.colour),
-        }}
-      >
-        {message.name}
-      </span>
-      <time
-        className="text-muted-foreground shrink-0 text-[11px]"
-        dateTime={new Date(message.ts).toISOString()}
-      >
-        {format(new Date(message.ts), "HH:mm dd/MM/yyyy")}
-      </time>
-    </div>
-    <p className="text-sm break-words whitespace-pre-wrap">{message.text}</p>
-  </li>
-);
+//
+// Identity is by uuid (message.authorId): "mine" survives a reload, and the
+// name + colour come LIVE from whoever has that uuid now — so renames/recolours
+// update past messages — falling back to the message's frozen snapshot when the
+// author isn't connected. An observer, so only affected rows re-render.
+const MessageRow = observer(({ message }: { message: ChatMessage }) => {
+  const isMine = message.authorId === store.profile.uuid;
+  const author = store.presence.byUuid.get(message.authorId);
+  const name = author?.name ?? message.name;
+  const colour = author?.colour ?? message.colour;
+
+  return (
+    <li
+      className={cn(
+        "bg-muted my-1 flex max-w-[50%] min-w-0 flex-col gap-2 rounded-2xl px-3 py-3 lg:max-w-[33%]",
+        isMine
+          ? "self-end rounded-br-md" // tail corner toward the sender's side
+          : "self-start rounded-bl-md",
+      )}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        {/* Chip matches the sender's avatar: their colour, readable same-hue shade. */}
+        <span
+          className="truncate rounded-full px-2 py-0.5 text-xs leading-tight font-semibold"
+          style={{
+            backgroundColor: colour,
+            color: contrastingShade(colour),
+          }}
+        >
+          {name}
+        </span>
+        <time
+          className="text-muted-foreground shrink-0 text-[11px]"
+          dateTime={new Date(message.ts).toISOString()}
+        >
+          {format(new Date(message.ts), "HH:mm dd/MM/yyyy")}
+        </time>
+      </div>
+      <p className="text-sm break-words whitespace-pre-wrap">{message.text}</p>
+    </li>
+  );
+});
 
 // The global text chat. Always usable — in the lobby, in a voice channel, or
 // while viewing text from inside one; it doesn't depend on presence.myChannel.
 const ChatPanel = observer(({ channelId }: { channelId: string }) => {
-  const { presence, chat } = store;
+  const { chat } = store;
   const messages = chat.messages;
   const label =
     TEXT_CHANNELS.find((c) => c.id === channelId)?.label ?? channelId;
@@ -85,11 +95,7 @@ const ChatPanel = observer(({ channelId }: { channelId: string }) => {
         ) : (
           <ul className="mt-auto flex flex-col pb-2 gap-1">
             {messages.map((m) => (
-              <MessageRow
-                key={m.id}
-                message={m}
-                isMine={m.from === presence.myId}
-              />
+              <MessageRow key={m.id} message={m} />
             ))}
           </ul>
         )}

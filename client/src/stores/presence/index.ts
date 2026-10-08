@@ -16,6 +16,7 @@ class PresenceStore {
     makeObservable(this, {
       myId: observable,
       me: computed,
+      byUuid: computed,
       myChannel: computed,
       apply: action,
       joinChannel: action,
@@ -29,6 +30,13 @@ class PresenceStore {
   // ── derived reads ──────────────────────────────────────────────
   get me(): UserInfo | undefined {
     return this.users.get(this.myId);
+  }
+
+  /** uuid -> currently-connected user (latest connection wins). */
+  get byUuid(): Map<string, UserInfo> {
+    const m = new Map<string, UserInfo>();
+    for (const u of this.users.values()) m.set(u.uuid, u);
+    return m;
   }
 
   get myChannel(): string {
@@ -54,7 +62,8 @@ class PresenceStore {
           Object.fromEntries(
             Object.entries(msg.users).map(([id, u]) => [
               id,
-              { ...u, muted: u.muted === true },
+              // uuid falls back to the connection id (as the server does)
+              { ...u, uuid: u.uuid || id, muted: u.muted === true },
             ]),
           ),
         );
@@ -65,6 +74,7 @@ class PresenceStore {
         break;
       case EVENT.UserJoined:
         this.users.set(msg.from, {
+          uuid: msg.uuid || msg.from,
           name: msg.name,
           colour: msg.colour,
           channel: msg.channel ?? "", // omitted on the wire when "" (lobby)
@@ -137,7 +147,7 @@ class PresenceStore {
   };
 
   // ── lifecycle ──────────────────────────────────────────────────
-  connect(name: string, colour: string) {
+  connect(name: string, colour: string, uuid: string) {
     // Every frame goes to every consumer; each ignores what it doesn't own
     // (peer:* signalling goes to the imperative audio manager).
     socket.onMessage((msg) => {
@@ -145,7 +155,7 @@ class PresenceStore {
       this.rootStore.chat.apply(msg);
       audio.handleMessage(msg);
     });
-    socket.connect({ name, colour });
+    socket.connect({ name, colour, uuid });
   }
 
   disconnect() {

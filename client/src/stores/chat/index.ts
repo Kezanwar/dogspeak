@@ -26,8 +26,8 @@ class ChatStore {
   apply = (msg: ServerMessage) => {
     switch (msg.type) {
       case EVENT.ChatMessage: {
-        const { id, from, name, colour, text, ts } = msg;
-        this.messages.push({ id, from, name, colour, text, ts });
+        const { id, from, authorId, name, colour, text, ts } = msg;
+        this.messages.push({ id, from, authorId, name, colour, text, ts });
         break;
       }
       case EVENT.ChatHistory:

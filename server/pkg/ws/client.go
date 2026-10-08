@@ -29,20 +29,33 @@ type Client struct {
 	colour  string
 	channel string
 	muted   bool // self-muted mic; a fresh connection starts unmuted
-	conn    *websocket.Conn
-	send    chan []byte
-	hub     *Hub
+	// uuid is the client's self-generated identity (sent at connect, kept in
+	// its localStorage across reloads). Identity-LITE, not auth: it's
+	// client-supplied and spoofable like the name — the room password is
+	// the trust boundary. Falls back to id if the client didn't send one.
+	uuid string
+	conn *websocket.Conn
+	send chan []byte
+	hub  *Hub
 }
 
-func newClient(hub *Hub, conn *websocket.Conn, name, colour string) *Client {
+// maxUUIDLen bounds the client-supplied uuid (a crypto.randomUUID is 36).
+const maxUUIDLen = 64
+
+func newClient(hub *Hub, conn *websocket.Conn, name, colour, uuid string) *Client {
 	if name == "" {
 		name = "anon"
 	}
 	if colour == "" {
 		colour = "#8a8a8a"
 	}
+	id := randID()
+	if uuid == "" || len(uuid) > maxUUIDLen {
+		uuid = id // older/odd client: fall back to the ephemeral connection id
+	}
 	return &Client{
-		id:      randID(),
+		id:      id,
+		uuid:    uuid,
 		name:    name,
 		colour:  colour,
 		channel: "", // start in the lobby, not in any channel
@@ -130,7 +143,7 @@ func (c *Client) readPump() {
 func (c *Client) handshake() {
 	c.hub.join(c) // queues session:welcome then chat:history
 	c.hub.broadcastAll(c.id, encode(Message{
-		Type: EventUserJoined, From: c.id,
+		Type: EventUserJoined, From: c.id, UUID: c.uuid,
 		Name: c.name, Colour: c.colour, Channel: c.channel,
 	}))
 }

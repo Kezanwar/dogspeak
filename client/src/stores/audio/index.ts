@@ -4,6 +4,7 @@ import type { RootStore } from "@app/stores";
 const MIC_KEY = "$MobX-mic";
 const VOLUME_KEY = "$MobX-volume";
 const SELF_MUTED_KEY = "$MobX-self-muted";
+const LOCAL_AUDIO_KEY = "$MobX-local-audio";
 
 export const MIC_GAIN_MAX = 2; // 200%
 
@@ -40,8 +41,10 @@ class AudioStore {
 
   // ── local-only listening controls (never broadcast) ──
   // People I've muted for myself, and my per-person volume (0..1, default 1).
-  localMuted = observable.map<string, true>();
-  peerVolume = observable.map<string, number>();
+  // Keyed by the other person's client UUID (not their connection id), so it
+  // survives THEIR reconnects; persisted so it survives YOUR reload.
+  localMuted = observable.map<string, true>(); // uuid -> muted by me
+  peerVolume = observable.map<string, number>(); // uuid -> 0..1
   // Persisted: master output volume (0..1) and my mic gain (0..2).
   outputVolume = 1;
   micGain = 1;
@@ -72,6 +75,7 @@ class AudioStore {
     } catch {
       // defaults
     }
+    this.#loadLocalAudio();
     makeObservable(this, {
       micBlocked: observable,
       micDeviceId: observable,
@@ -201,22 +205,67 @@ class AudioStore {
     if (saved) this.rootStore.presence.setMuted(true);
   }
 
-  // ── local-only per-person controls ──
-  isLocallyMuted(id: string): boolean {
-    return this.localMuted.has(id);
+  // ── local-only per-person controls (keyed by uuid, persisted) ──
+  isLocallyMuted(uuid: string): boolean {
+    return this.localMuted.has(uuid);
   }
 
-  toggleLocalMute(id: string) {
-    if (this.localMuted.has(id)) this.localMuted.delete(id);
-    else this.localMuted.set(id, true);
+  toggleLocalMute(uuid: string) {
+    if (this.localMuted.has(uuid)) this.localMuted.delete(uuid);
+    else this.localMuted.set(uuid, true);
+    this.#persistLocalAudio();
   }
 
-  volumeOf(id: string): number {
-    return this.peerVolume.get(id) ?? 1;
+  volumeOf(uuid: string): number {
+    return this.peerVolume.get(uuid) ?? 1;
   }
 
-  setPeerVolume(id: string, volume: number) {
-    this.peerVolume.set(id, clamp(volume, 0, 1));
+  setPeerVolume(uuid: string, volume: number) {
+    const v = clamp(volume, 0, 1);
+    if (v === 1)
+      this.peerVolume.delete(uuid); // default: don't store it
+    else this.peerVolume.set(uuid, v);
+    this.#persistLocalAudio();
+  }
+
+  /** A peer connection's uuid, from presence (undefined until known). */
+  uuidOfConnection(connId: string): string | undefined {
+    return this.rootStore.presence.users.get(connId)?.uuid;
+  }
+
+  #loadLocalAudio() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(LOCAL_AUDIO_KEY) ?? "{}") as {
+        muted?: unknown;
+        volumes?: unknown;
+      };
+      if (Array.isArray(raw.muted)) {
+        for (const u of raw.muted)
+          if (typeof u === "string") this.localMuted.set(u, true);
+      }
+      if (raw.volumes && typeof raw.volumes === "object") {
+        for (const [u, v] of Object.entries(raw.volumes)) {
+          if (typeof v === "number" && Number.isFinite(v))
+            this.peerVolume.set(u, clamp(v, 0, 1));
+        }
+      }
+    } catch {
+      // corrupt storage — nobody muted, everyone at full volume
+    }
+  }
+
+  #persistLocalAudio() {
+    try {
+      localStorage.setItem(
+        LOCAL_AUDIO_KEY,
+        JSON.stringify({
+          muted: [...this.localMuted.keys()],
+          volumes: Object.fromEntries(this.peerVolume),
+        }),
+      );
+    } catch {
+      // storage full / disabled — settings just won't survive a reload
+    }
   }
 
   setOutputVolume(volume: number) {

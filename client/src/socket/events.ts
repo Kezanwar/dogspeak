@@ -27,6 +27,7 @@ export type EventType = (typeof EVENT)[keyof typeof EVENT];
 
 /** One person's public presence. `channel: ''` means the lobby (no channel). */
 export interface UserInfo {
+  uuid: string; // client identity (stable across reloads; spoofable, not auth)
   name: string;
   colour: string;
   channel: string;
@@ -50,6 +51,7 @@ export interface WelcomeMessage {
 export interface UserJoinedMessage {
   type: typeof EVENT.UserJoined;
   from: string;
+  uuid?: string;
   name: string;
   colour: string;
   channel?: string;
@@ -118,7 +120,8 @@ export interface PeerCandidateMessage {
 /** One chat line. name + colour are snapshotted by the server at send time. */
 export interface ChatMessage {
   id: string;
-  from: string;
+  from: string; // sender connection id at send time
+  authorId: string; // sender client uuid — ownership + live name/colour lookup
   name: string;
   colour: string;
   text: string;
