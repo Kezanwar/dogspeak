@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Check, LogOut, Mic, User } from "lucide-react";
+import { Check, Mic, User } from "lucide-react";
 
 import { Button } from "@app/components/ui/button";
 import {
@@ -23,7 +23,6 @@ import { contrastingShade } from "@app/lib/colour";
 import ColourAvatar from "@app/components/colour-avatar";
 import MicPicker from "@app/layouts/dashboard/components/mic-picker";
 import VolumeSettings from "@app/layouts/dashboard/components/volume-settings";
-import SignOutConfirm from "@app/layouts/dashboard/components/sign-out-confirm";
 import store from "@app/stores";
 import { NAME_MAX_LENGTH, PROFILE_COLOURS } from "@app/stores/profile";
 
@@ -72,7 +71,6 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
   const [name, setName] = useState(profile.name);
   const [colour, setColour] = useState(profile.colour);
   const [tab, setTab] = useState<Tab>(readTab);
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const trimmed = name.trim();
 
@@ -153,18 +151,6 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
               })}
             </div>
           </div>
-
-          {/* Same confirm as the sidebar's sign-out button. */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setConfirmOpen(true)}
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive mt-auto w-fit"
-          >
-            <LogOut className="size-4" />
-            sign out
-          </Button>
         </TabsContent>
 
         <TabsContent value="audio" className={PANEL}>
@@ -181,8 +167,6 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
           save
         </Button>
       </DialogFooter>
-
-      <SignOutConfirm open={confirmOpen} onOpenChange={setConfirmOpen} />
     </form>
   );
 };
