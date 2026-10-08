@@ -53,10 +53,16 @@ func (h *Hub) add(c *Client) map[string]UserInfo {
 // chat:history, all under the lock chat broadcasts also take — so a message
 // posted at the same instant is either in the history snapshot or queued
 // strictly after it, never before it (where the history would wipe it out).
+//
+// One active connection per identity, newest wins: any OTHER connection with
+// the newcomer's uuid is evicted first (session:superseded, then closed), so
+// it's not in the newcomer's roster and a refresh simply replaces its own
+// stale socket. Its user:left goes out from its normal disconnect cleanup.
 func (h *Hub) join(c *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	h.evictDuplicatesLocked(c)
 	roster := h.addLocked(c)
 	c.trySend(encode(Message{Type: EventSessionWelcome, To: c.id, Users: roster}))
 	b, _ := json.Marshal(historyMessage{
@@ -64,6 +70,25 @@ func (h *Hub) join(c *Client) {
 		Messages: append([]ChatMessage{}, h.chat...),
 	})
 	c.trySend(b)
+}
+
+// evictDuplicatesLocked supersedes every other client with c's uuid. Only
+// real client uuids dedup: a fallback uuid (== the connection id) is unique
+// by construction. Matching on a DIFFERENT id means c can't evict itself.
+func (h *Hub) evictDuplicatesLocked(c *Client) {
+	if c.uuid == "" || c.uuid == c.id {
+		return
+	}
+	for id, old := range h.clients {
+		if id == c.id || old.uuid != c.uuid {
+			continue
+		}
+		old.superseded.Store(true)
+		old.trySend(encode(Message{Type: EventSessionSuperseded}))
+		delete(h.clients, id)
+		old.closeSend() // writePump flushes the frame, then sends close 4001
+		slog.Info("ws superseded", "id", id, "by", c.id)
+	}
 }
 
 func (h *Hub) addLocked(c *Client) map[string]UserInfo {

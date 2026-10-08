@@ -16,6 +16,12 @@ const maxChatLen = 2000
 //   - presence:   applied to the sender, then broadcast to EVERYONE (server-wide)
 //   - chat:       stamped + stored, then sent to EVERYONE (global, not per channel)
 func route(c *Client, m Message) {
+	// An evicted (superseded) connection is on its way out: ignore anything
+	// it still sends so it can't post, signal or change presence as a ghost.
+	if c.superseded.Load() {
+		return
+	}
+
 	// Always stamp the real sender. Never trust a client-supplied From.
 	m.From = c.id
 

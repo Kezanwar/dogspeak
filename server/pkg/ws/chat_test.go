@@ -22,7 +22,10 @@ func drain(t *testing.T, c *Client) []map[string]any {
 	var out []map[string]any
 	for {
 		select {
-		case b := <-c.send:
+		case b, ok := <-c.send:
+			if !ok {
+				return out // closed (e.g. evicted)
+			}
 			var m map[string]any
 			if err := json.Unmarshal(b, &m); err != nil {
 				t.Fatalf("bad frame %s: %v", b, err)

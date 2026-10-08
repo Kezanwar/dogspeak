@@ -34,6 +34,7 @@ class ChatStore {
         this.messages = msg.messages ?? [];
         break;
       case EVENT.SessionWelcome:
+      case EVENT.SessionSuperseded:
       case EVENT.UserJoined:
       case EVENT.UserLeft:
       case EVENT.UserChangeChannel:

@@ -26,6 +26,9 @@ Monorepo: `server/` (Go signalling server) + `client/` (React SPA).
 - **Channels are frontend-owned vocabulary** (`general`, `lounge`, `afk`; afk has no audio).
   The server treats `channel` as an opaque string. `""` = lobby, and is OMITTED on the
   wire (treat absent as `""`). One voice channel at a time.
+- **One active connection per client uuid, newest wins.** A new socket with a live uuid evicts the old one
+  (`session:superseded` + close 4001); the evicted client must NOT auto-reconnect — it shows the
+  full-screen "connected in another tab" gate (`presence.superseded`, at the App root).
 - **Text chat is global**, not tied to voice channels (usable from the lobby). The main panel's
   *view* (`ui.view`: text or a voice channel) is separate from voice membership (`presence.myChannel`);
   changing the view must never join/leave voice.

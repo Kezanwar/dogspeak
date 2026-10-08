@@ -13,6 +13,10 @@ class PresenceStore {
   // opened this session (so "connecting…" vs "reconnecting…").
   connected = false;
   everConnected = false;
+  // A newer session for my uuid (another tab, or a refresh elsewhere) took
+  // over and the server closed this one. Gates the whole app (see App.tsx);
+  // deliberately NOT cleared by reset(), only by continueHere().
+  superseded = false;
   users = observable.map<string, UserInfo>(); // id -> presence
 
   constructor(rootStore: RootStore) {
@@ -21,6 +25,8 @@ class PresenceStore {
       myId: observable,
       connected: observable,
       everConnected: observable,
+      superseded: observable,
+      continueHere: action,
       setConnected: action,
       me: computed,
       byUuid: computed,
@@ -115,6 +121,9 @@ class PresenceStore {
       case EVENT.ChatHistory:
         // chat — handled by ChatStore
         break;
+      case EVENT.SessionSuperseded:
+        // intercepted by the socket (stops reconnect → onSuperseded)
+        break;
       default: {
         const _exhaustive: never = msg; // compile error if an event is unhandled
         return _exhaustive;
@@ -163,7 +172,20 @@ class PresenceStore {
       audio.handleMessage(msg);
     });
     socket.onStatus(this.setConnected);
+    socket.onSuperseded(this.setSuperseded);
     socket.connect({ name, colour, uuid });
+  }
+
+  setSuperseded = action(() => {
+    this.superseded = true;
+  });
+
+  /**
+   * "continue here": drop the superseded gate. The dashboard remounts and
+   * connects afresh, which in turn supersedes the other tab (newest wins).
+   */
+  continueHere() {
+    this.superseded = false;
   }
 
   setConnected = (connected: boolean) => {

@@ -1,13 +1,18 @@
 import { WS_URL } from "@app/config";
-import type { ClientMessage, ServerMessage } from "./events";
+import { EVENT, type ClientMessage, type ServerMessage } from "./events";
 
 type MessageHandler = (msg: ServerMessage) => void;
 type StatusHandler = (connected: boolean) => void;
+
+// Close code the server uses when a newer connection with our uuid evicts us
+// (mirrors closeSuperseded in pkg/ws/client.go).
+const CLOSE_SUPERSEDED = 4001;
 
 class SocketClient {
   #ws: WebSocket | null = null;
   #messageHandler: MessageHandler | null = null;
   #statusHandler: StatusHandler | null = null;
+  #supersededHandler: (() => void) | null = null;
   #params: { name: string; colour: string; uuid: string } | null = null;
   #intentional = false;
   #retry = 0;
@@ -21,6 +26,14 @@ class SocketClient {
   /** Optional: observe connected/disconnected (for a status dot later). */
   onStatus(fn: StatusHandler) {
     this.#statusHandler = fn;
+  }
+
+  /**
+   * Called (once per eviction) when another tab/refresh took over our
+   * identity. The socket has already stopped reconnecting by then.
+   */
+  onSuperseded(fn: () => void) {
+    this.#supersededHandler = fn;
   }
 
   /** Open the socket. The session cookie rides the handshake automatically. */
@@ -50,6 +63,17 @@ class SocketClient {
     this.#retryTimer = null;
     this.#ws?.close();
     this.#ws = null;
+  }
+
+  // Evicted by a newer session for our identity. Treat it like an
+  // intentional disconnect — reconnecting would evict the other tab, which
+  // would reconnect and evict us, forever. A network drop still reconnects.
+  #superseded() {
+    if (this.#intentional) return; // already handled (frame, then close)
+    this.#intentional = true;
+    if (this.#retryTimer) clearTimeout(this.#retryTimer);
+    this.#retryTimer = null;
+    this.#supersededHandler?.();
   }
 
   // arrow field so setTimeout(this.#open, …) keeps `this`
@@ -82,15 +106,24 @@ class SocketClient {
 
     ws.onmessage = (e) => {
       if (this.#ws !== ws) return;
+      let msg: ServerMessage;
       try {
-        this.#messageHandler?.(JSON.parse(e.data) as ServerMessage);
+        msg = JSON.parse(e.data) as ServerMessage;
       } catch {
-        // ignore malformed frames (server is ours; this shouldn't happen)
+        return; // ignore malformed frames (server is ours; this shouldn't happen)
       }
+      if (msg.type === EVENT.SessionSuperseded) {
+        this.#superseded();
+        return;
+      }
+      this.#messageHandler?.(msg);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       if (this.#ws !== ws) return;
+      // The 4001 close says the same as session:superseded, should that frame
+      // have been dropped. Either way it's intentional — no reconnect.
+      if (e.code === CLOSE_SUPERSEDED) this.#superseded();
       this.#ws = null;
       this.#statusHandler?.(false);
       if (!this.#intentional) {
