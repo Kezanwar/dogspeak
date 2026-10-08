@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { format } from "date-fns";
 import { MessagesSquare } from "lucide-react";
 
+import EmptyState from "@app/components/empty-state";
 import { Input } from "@app/components/ui/input";
 import { TEXT_CHANNELS } from "@app/config/channels";
 import type { ChatMessage } from "@app/socket/events";
@@ -91,7 +92,10 @@ const ChatPanel = observer(({ channelId }: { channelId: string }) => {
           theme-proof); the bottom stays crisp. Masks don't affect events. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pt-8 [mask-image:linear-gradient(to_bottom,transparent,black_2rem,black_100%)] [-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2rem,black_100%)]">
         {messages.length === 0 ? (
-          <EmptyState text={`no messages in ${label} yet`} />
+          <EmptyState
+            icon={MessagesSquare}
+            text={`no messages in ${label} yet`}
+          />
         ) : (
           <ul className="mt-auto flex flex-col pb-2 gap-1">
             {messages.map((m) => (
@@ -115,12 +119,5 @@ const ChatPanel = observer(({ channelId }: { channelId: string }) => {
     </section>
   );
 });
-
-const EmptyState = ({ text }: { text: string }) => (
-  <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 text-sm">
-    <MessagesSquare className="size-6 opacity-60" />
-    {text}
-  </div>
-);
 
 export default ChatPanel;
