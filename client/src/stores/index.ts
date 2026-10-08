@@ -5,6 +5,7 @@ import PresenceStore from "./presence";
 import ProfileStore from "./profile";
 import ChatStore from "./chat";
 import AudioStore from "./audio";
+import MaintenanceStore from "./maintenance";
 
 export class RootStore {
   auth = new AuthStore(this);
@@ -13,6 +14,7 @@ export class RootStore {
   profile = new ProfileStore(this);
   chat = new ChatStore(this);
   audio = new AudioStore(this);
+  maintenance = new MaintenanceStore(this);
 }
 
 const store = new RootStore();
