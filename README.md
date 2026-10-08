@@ -44,7 +44,8 @@ above) add `-e ENV=` so the cookie isn't Secure-only.
 ### Render
 
 One **Web Service** (Docker runtime) from the repo root `Dockerfile`, with no
-separate static site. `render.yaml` is the blueprint. Env:
+separate static site. `render.yaml` is the blueprint; its health check is
+`GET /api/health` (unauthenticated, returns `{"status":"ok","clients":N}`). Env:
 
 | var              | value                                                   |
 | ---------------- | ------------------------------------------------------- |

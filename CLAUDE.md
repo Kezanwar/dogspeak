@@ -32,7 +32,8 @@ Monorepo: `server/` (Go signalling server) + `client/` (React SPA).
 
 ## Server (`server/`, Go)
 
-- Packages under `pkg/`: `ws` (hub/client/router/message), `auth`, `jwt`, `middleware`, `respond`, `web` (embedded SPA). Entry: `cmd/api`.
+- Packages under `pkg/`: `ws` (hub/client/router/message), `auth`, `jwt`, `middleware`, `respond`, `web` (embedded SPA), `health`
+  (`GET /api/health`, unauthenticated liveness — Render's health check). Entry: `cmd/api`.
 - **Single origin, no CORS.** Prod: Go serves the built SPA (`go:embed`, `pkg/web/dist` — keep the committed
   placeholder `index.html`) as the router's NotFound handler, after `/api` and `/ws`. Dev: Vite proxies `/api` + `/ws`
   to `:8080`. `/ws` accepts same-origin handshakes only. Deploy = one Docker image (root `Dockerfile`, `render.yaml`).

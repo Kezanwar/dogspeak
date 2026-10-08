@@ -12,6 +12,7 @@ import (
 	"github.com/mattn/go-isatty"
 
 	"dogspeak-server/pkg/auth"
+	"dogspeak-server/pkg/health"
 	"dogspeak-server/pkg/middleware"
 	"dogspeak-server/pkg/web"
 	"dogspeak-server/pkg/ws"
@@ -33,6 +34,10 @@ func main() {
 	r := mux.NewRouter()
 
 	api := r.PathPrefix("/api").Subrouter()
+
+	// Liveness for Render's health check: unauthenticated (it sends no cookie),
+	// and it proves the Go router is up, unlike "/", which is just index.html.
+	api.Handle("/health", health.Handler(hub.ClientCount)).Methods(http.MethodGet)
 
 	api.HandleFunc("/session", a.Login).Methods(http.MethodPost)
 	api.HandleFunc("/session", a.Session).Methods(http.MethodGet)
