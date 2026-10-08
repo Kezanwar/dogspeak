@@ -127,7 +127,10 @@ export interface PeerCandidateMessage {
   data: RTCIceCandidateInit;
 }
 
-/** One chat line. name + colour are snapshotted by the server at send time. */
+/**
+ * One chat line. name + colour are a snapshot, refreshed (server buffer and
+ * client copies) whenever the author renames/recolours.
+ */
 export interface ChatMessage {
   id: string;
   from: string; // sender connection id at send time

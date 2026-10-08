@@ -172,7 +172,11 @@ never lost) — not on voice-channel join.
   `authorId === my uuid`; render name/colour **live** from the connected user
   with that uuid.
 - `name` / `colour` — **snapshotted** by the server when the message is sent:
-  the fallback when the author isn't currently connected.
+  the fallback when the author isn't currently connected. The snapshot is kept
+  current: on `user:change_name` / `user:change_colour` the server rewrites it
+  on every buffered message with that author's uuid (so `chat:history` is
+  fresh for newcomers), and clients patch their own copies the same way (the
+  sender patches its own, since it gets no echo). Fallback uuids are skipped.
 - `ts` — unix millis, stamped by the server.
 
 Rules:

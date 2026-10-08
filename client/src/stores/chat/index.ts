@@ -18,6 +18,7 @@ class ChatStore {
     makeObservable(this, {
       messages: observable,
       apply: action,
+      patchAuthor: action,
       reset: action,
     });
   }
@@ -33,13 +34,26 @@ class ChatStore {
       case EVENT.ChatHistory:
         this.messages = msg.messages ?? [];
         break;
+      // Someone else renamed / recoloured: refresh the snapshots on their past
+      // messages too (presence has already been patched; the uuid is stable).
+      case EVENT.UserChangeName:
+      case EVENT.UserChangeColour: {
+        const u = this.rootStore.presence.users.get(msg.from);
+        if (u && u.uuid !== msg.from) {
+          this.patchAuthor(
+            u.uuid,
+            msg.type === EVENT.UserChangeName
+              ? { name: msg.name }
+              : { colour: msg.colour },
+          );
+        }
+        break;
+      }
       case EVENT.SessionWelcome:
       case EVENT.SessionSuperseded:
       case EVENT.UserJoined:
       case EVENT.UserLeft:
       case EVENT.UserChangeChannel:
-      case EVENT.UserChangeName:
-      case EVENT.UserChangeColour:
       case EVENT.UserMute:
       case EVENT.UserUnmute:
       case EVENT.PeerOffer:
@@ -53,6 +67,22 @@ class ChatStore {
       }
     }
   };
+
+  /**
+   * Rewrite the name/colour snapshot on every message by this author (uuid),
+   * mirroring the server's rewrite of its buffer. Keeps the fallback (used
+   * once the author disconnects) as current as the live lookup, for people
+   * who were already here when the change happened. A fallback uuid (= a
+   * connection id) is never passed in, matching the server.
+   */
+  patchAuthor(
+    uuid: string,
+    patch: Partial<Pick<ChatMessage, "name" | "colour">>,
+  ) {
+    for (const m of this.messages) {
+      if (m.authorId === uuid) Object.assign(m, patch);
+    }
+  }
 
   // ── outgoing ───────────────────────────────────────────────────
   // No optimistic add: the server echoes our own message back to us.

@@ -144,8 +144,11 @@ class PresenceStore {
     socket.send({ type: EVENT.UserChangeChannel, channel });
   };
 
+  // The server echoes presence changes to everyone EXCEPT the sender, so my
+  // own chat snapshots are refreshed here (others' via ChatStore.apply).
   setName = (name: string) => {
     this.patch(this.myId, { name });
+    this.#patchMyChat({ name });
     socket.updateParams({ name });
     socket.send({ type: EVENT.UserChangeName, name });
   };
@@ -158,9 +161,16 @@ class PresenceStore {
 
   setColour = (colour: string) => {
     this.patch(this.myId, { colour });
+    this.#patchMyChat({ colour });
     socket.updateParams({ colour });
     socket.send({ type: EVENT.UserChangeColour, colour });
   };
+
+  #patchMyChat(patch: { name?: string } | { colour?: string }) {
+    const uuid = this.me?.uuid;
+    if (uuid && uuid !== this.myId)
+      this.rootStore.chat.patchAuthor(uuid, patch);
+  }
 
   // ── lifecycle ──────────────────────────────────────────────────
   connect(name: string, colour: string, uuid: string) {
