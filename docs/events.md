@@ -71,6 +71,26 @@ on `/ws`, alongside `name` and `colour`. It's a connect param, not a message.
 The connection id (`from`, roster keys, `to` for signalling) is still the
 per-connection address; the uuid is the per-person identity behind it.
 
+### One active session per uuid (newest wins)
+
+The server allows **one connection per uuid**, server-wide (lobby included).
+When a connection arrives with a uuid that's already connected, the **new one
+wins**: before registering it (under the hub lock) the server sends each older
+connection with that uuid `session:superseded`, then closes it with WebSocket
+close code **4001** ("session superseded"). The old connection's normal
+disconnect cleanup broadcasts `user:left` for it, so rosters update; it's not
+in the newcomer's `session:welcome`. Anything the old connection sends after
+being superseded is ignored.
+
+- Only real client uuids dedup — a fallback uuid (= the connection id) never matches another connection.
+- The match is on uuid with a **different** connection id, so a connection can't supersede itself.
+- Why newest-wins: a refresh's new socket simply replaces its own stale one
+  instead of being locked out until the old one times out.
+
+| Event                | Direction        | Payload  | Receiver does |
+| -------------------- | ---------------- | -------- | ------------- |
+| `session:superseded` | S→evicted client | _(none)_ | A newer session for your identity connected; this one is being closed. Do **not** auto-reconnect (two tabs would evict each other forever) — show the "open in another tab" state. A close with code 4001 means the same thing (in case the frame was dropped). |
+
 ---
 
 ## Presence (server-wide)
@@ -152,7 +172,11 @@ never lost) — not on voice-channel join.
   `authorId === my uuid`; render name/colour **live** from the connected user
   with that uuid.
 - `name` / `colour` — **snapshotted** by the server when the message is sent:
-  the fallback when the author isn't currently connected.
+  the fallback when the author isn't currently connected. The snapshot is kept
+  current: on `user:change_name` / `user:change_colour` the server rewrites it
+  on every buffered message with that author's uuid (so `chat:history` is
+  fresh for newcomers), and clients patch their own copies the same way (the
+  sender patches its own, since it gets no echo). Fallback uuids are skipped.
 - `ts` — unix millis, stamped by the server.
 
 Rules:

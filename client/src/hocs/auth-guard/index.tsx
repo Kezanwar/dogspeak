@@ -1,5 +1,4 @@
 import store, { observer } from "@app/stores";
-import { toJS } from "mobx";
 import { type FC, type ReactNode } from "react";
 import { Navigate } from "react-router";
 
@@ -8,7 +7,6 @@ type Props = {
 };
 
 const AuthGuard: FC<Props> = observer(({ children }) => {
-  console.log(toJS(store.auth));
   if (store.auth.isInitialized) {
     if (!store.auth.isAuthenticated) {
       return (

@@ -6,7 +6,8 @@ import "encoding/json"
 // sync with events.md — a mistyped name silently does nothing on one side.
 const (
 	// Session bootstrap — server -> newcomer only.
-	EventSessionWelcome = "session:welcome" // full roster snapshot
+	EventSessionWelcome    = "session:welcome"    // full roster snapshot
+	EventSessionSuperseded = "session:superseded" // S->evicted: a newer connection with your uuid took over; this one is closing
 
 	// Presence — broadcast server-wide (everyone gets these, whatever channel
 	// they're in), so every client can render the full lobby roster.

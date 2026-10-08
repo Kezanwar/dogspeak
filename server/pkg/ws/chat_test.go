@@ -22,7 +22,10 @@ func drain(t *testing.T, c *Client) []map[string]any {
 	var out []map[string]any
 	for {
 		select {
-		case b := <-c.send:
+		case b, ok := <-c.send:
+			if !ok {
+				return out // closed (e.g. evicted)
+			}
 			var m map[string]any
 			if err := json.Unmarshal(b, &m); err != nil {
 				t.Fatalf("bad frame %s: %v", b, err)
@@ -119,7 +122,7 @@ func TestHistoryDeliveredOnConnectRightAfterWelcome(t *testing.T) {
 	if len(h.chat) != chatHistoryLimit {
 		t.Fatalf("buffer holds %d, want %d", len(h.chat), chatHistoryLimit)
 	}
-	// Sender renames then leaves: the stored snapshot keeps the old name.
+	// Sender renames then leaves: the stored snapshot carries the NEW name.
 	h.changeName(alice, "alicia")
 	h.remove(alice)
 
@@ -142,8 +145,8 @@ func TestHistoryDeliveredOnConnectRightAfterWelcome(t *testing.T) {
 	if first["text"] != "msg 5" || last["text"] != fmt.Sprintf("msg %d", chatHistoryLimit+4) {
 		t.Errorf("oldest not dropped: first=%v last=%v", first["text"], last["text"])
 	}
-	if last["name"] != "alice" {
-		t.Errorf("name snapshot = %v, want alice", last["name"])
+	if last["name"] != "alicia" {
+		t.Errorf("name snapshot = %v, want alicia (rewritten on rename)", last["name"])
 	}
 }
 

@@ -26,6 +26,13 @@ Monorepo: `server/` (Go signalling server) + `client/` (React SPA).
 - **Channels are frontend-owned vocabulary** (`general`, `lounge`, `afk`; afk has no audio).
   The server treats `channel` as an opaque string. `""` = lobby, and is OMITTED on the
   wire (treat absent as `""`). One voice channel at a time.
+- **One active connection per client uuid, newest wins.** A new socket with a live uuid evicts the old one
+  (`session:superseded` + close 4001); the evicted client must NOT auto-reconnect — it shows the
+  full-screen "connected in another tab" gate (`presence.superseded`, at the App root).
+- **Maintenance mode = `MAINTENANCE` env + `GET /api/status`** (unauthenticated, always 200). While on, `/ws`
+  and `/api/session` answer 503, but `/api/health` MUST stay 200 (Render's health check) and the SPA keeps loading.
+  The client parks on a full-screen gate (`maintenance.active`, outermost at the App root): audio torn down
+  explicitly, no reconnect loop, polls status ~7s, then restores itself. No WS event for it.
 - **Text chat is global**, not tied to voice channels (usable from the lobby). The main panel's
   *view* (`ui.view`: text or a voice channel) is separate from voice membership (`presence.myChannel`);
   changing the view must never join/leave voice.
@@ -33,7 +40,7 @@ Monorepo: `server/` (Go signalling server) + `client/` (React SPA).
 ## Server (`server/`, Go)
 
 - Packages under `pkg/`: `ws` (hub/client/router/message), `auth`, `jwt`, `middleware`, `respond`, `web` (embedded SPA), `health`
-  (`GET /api/health`, unauthenticated liveness — Render's health check). Entry: `cmd/api`.
+  (`GET /api/health`, unauthenticated liveness — Render's health check), `maintenance` (status endpoint + 503 gate). Entry: `cmd/api`.
 - **Single origin, no CORS.** Prod: Go serves the built SPA (`go:embed`, `pkg/web/dist` — keep the committed
   placeholder `index.html`) as the router's NotFound handler, after `/api` and `/ws`. Dev: Vite proxies `/api` + `/ws`
   to `:8080`. `/ws` accepts same-origin handshakes only. Deploy = one Docker image (root `Dockerfile`, `render.yaml`).

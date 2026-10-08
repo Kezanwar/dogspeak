@@ -9,6 +9,7 @@
 /** Event name constants — mirror the Go `Event*` consts. Use these, not string literals. */
 export const EVENT = {
   SessionWelcome: "session:welcome",
+  SessionSuperseded: "session:superseded",
   UserJoined: "user:joined",
   UserLeft: "user:left",
   UserChangeChannel: "user:change_channel",
@@ -55,6 +56,15 @@ export interface UserJoinedMessage {
   name: string;
   colour: string;
   channel?: string;
+}
+
+/**
+ * session:superseded — a newer connection with your uuid (another tab, or a
+ * refresh) took over; this one is being closed (code 4001). No payload.
+ * Never auto-reconnect after it.
+ */
+export interface SessionSupersededMessage {
+  type: typeof EVENT.SessionSuperseded;
 }
 
 /** user:left — someone disconnected. */
@@ -117,7 +127,10 @@ export interface PeerCandidateMessage {
   data: RTCIceCandidateInit;
 }
 
-/** One chat line. name + colour are snapshotted by the server at send time. */
+/**
+ * One chat line. name + colour are a snapshot, refreshed (server buffer and
+ * client copies) whenever the author renames/recolours.
+ */
 export interface ChatMessage {
   id: string;
   from: string; // sender connection id at send time
@@ -144,6 +157,7 @@ export interface ChatHistoryMessage {
 /** Everything the server can send. Narrow on `.type`. */
 export type ServerMessage =
   | WelcomeMessage
+  | SessionSupersededMessage
   | UserJoinedMessage
   | UserLeftMessage
   | UserChangeChannelMessage

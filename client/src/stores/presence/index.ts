@@ -13,6 +13,10 @@ class PresenceStore {
   // opened this session (so "connecting…" vs "reconnecting…").
   connected = false;
   everConnected = false;
+  // A newer session for my uuid (another tab, or a refresh elsewhere) took
+  // over and the server closed this one. Gates the whole app (see App.tsx);
+  // deliberately NOT cleared by reset(), only by continueHere().
+  superseded = false;
   users = observable.map<string, UserInfo>(); // id -> presence
 
   constructor(rootStore: RootStore) {
@@ -21,6 +25,8 @@ class PresenceStore {
       myId: observable,
       connected: observable,
       everConnected: observable,
+      superseded: observable,
+      continueHere: action,
       setConnected: action,
       me: computed,
       byUuid: computed,
@@ -115,6 +121,9 @@ class PresenceStore {
       case EVENT.ChatHistory:
         // chat — handled by ChatStore
         break;
+      case EVENT.SessionSuperseded:
+        // intercepted by the socket (stops reconnect → onSuperseded)
+        break;
       default: {
         const _exhaustive: never = msg; // compile error if an event is unhandled
         return _exhaustive;
@@ -135,8 +144,11 @@ class PresenceStore {
     socket.send({ type: EVENT.UserChangeChannel, channel });
   };
 
+  // The server echoes presence changes to everyone EXCEPT the sender, so my
+  // own chat snapshots are refreshed here (others' via ChatStore.apply).
   setName = (name: string) => {
     this.patch(this.myId, { name });
+    this.#patchMyChat({ name });
     socket.updateParams({ name });
     socket.send({ type: EVENT.UserChangeName, name });
   };
@@ -149,9 +161,16 @@ class PresenceStore {
 
   setColour = (colour: string) => {
     this.patch(this.myId, { colour });
+    this.#patchMyChat({ colour });
     socket.updateParams({ colour });
     socket.send({ type: EVENT.UserChangeColour, colour });
   };
+
+  #patchMyChat(patch: { name?: string } | { colour?: string }) {
+    const uuid = this.me?.uuid;
+    if (uuid && uuid !== this.myId)
+      this.rootStore.chat.patchAuthor(uuid, patch);
+  }
 
   // ── lifecycle ──────────────────────────────────────────────────
   connect(name: string, colour: string, uuid: string) {
@@ -163,7 +182,44 @@ class PresenceStore {
       audio.handleMessage(msg);
     });
     socket.onStatus(this.setConnected);
+    socket.onSuperseded(this.setSuperseded);
+    socket.setReconnectCheck(this.rootStore.maintenance.allowReconnect);
     socket.connect({ name, colour, uuid });
+  }
+
+  /**
+   * A newer session for my uuid took over (session:superseded frame or the
+   * 4001 close — the socket has already stopped reconnecting). Tear
+   * everything down HERE, explicitly, not via the dashboard's unmount:
+   * WebRTC media is peer-to-peer and doesn't need the WS, so until the peer
+   * connections close and the mic stops, this tab would keep sending and
+   * receiving audio with nobody looking at it.
+   */
+  setSuperseded = action(() => {
+    if (this.superseded) return;
+    audio.teardown(); // close every peer connection (output) + stop the mic (input)
+    socket.disconnect(); // drop the dead socket now; no reconnect either way
+    // Clear my presence so the audio reaction, if it runs again before the
+    // dashboard unmounts, syncs to "no channel" (teardown), never rebuilds.
+    this.reset();
+    this.rootStore.chat.reset();
+    this.superseded = true;
+  });
+
+  /**
+   * "continue here": reconnect this tab FRESH, landing in the lobby.
+   * - dismisses the superseded screen (the dashboard remounts);
+   * - its mount calls socket.connect(), which clears the no-reconnect flag
+   *   the eviction set and opens a new socket;
+   * - the server starts every connection in the lobby (channel ""), and we
+   *   deliberately don't restore the previous voice channel — presence was
+   *   reset on supersede, so there's nothing to rejoin. The view goes back to
+   *   the default text channel too, as on a fresh load.
+   * The new connection supersedes whichever tab is active now (newest wins).
+   */
+  continueHere() {
+    this.rootStore.ui.viewText();
+    this.superseded = false;
   }
 
   setConnected = (connected: boolean) => {
