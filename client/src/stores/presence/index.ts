@@ -9,12 +9,19 @@ class PresenceStore {
   rootStore: RootStore;
 
   myId = "";
+  // Socket state for the status UI: open right now, and whether it has ever
+  // opened this session (so "connecting…" vs "reconnecting…").
+  connected = false;
+  everConnected = false;
   users = observable.map<string, UserInfo>(); // id -> presence
 
   constructor(rootStore: RootStore) {
     this.rootStore = rootStore;
     makeObservable(this, {
       myId: observable,
+      connected: observable,
+      everConnected: observable,
+      setConnected: action,
       me: computed,
       byUuid: computed,
       myChannel: computed,
@@ -155,8 +162,14 @@ class PresenceStore {
       this.rootStore.chat.apply(msg);
       audio.handleMessage(msg);
     });
+    socket.onStatus(this.setConnected);
     socket.connect({ name, colour, uuid });
   }
+
+  setConnected = (connected: boolean) => {
+    this.connected = connected;
+    if (connected) this.everConnected = true;
+  };
 
   disconnect() {
     socket.disconnect();
@@ -166,6 +179,8 @@ class PresenceStore {
 
   reset = () => {
     this.myId = "";
+    this.connected = false;
+    this.everConnected = false;
     this.users.clear();
   };
 }

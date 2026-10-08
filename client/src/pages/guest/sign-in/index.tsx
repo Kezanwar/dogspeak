@@ -10,7 +10,7 @@ import { errorHandler } from "@app/lib/axios";
 import { toast } from "sonner";
 import DogHeadset from "@app/components/dog-headset";
 import { Button } from "@app/components/ui/button";
-import { Spinner } from "@app/components/ui/spinner";
+import Spinner from "@app/components/spinner";
 
 const SignIn = () => {
   const nav = useNavigate();
@@ -71,7 +71,11 @@ const SignIn = () => {
                   className="w-max"
                   disabled={isSubmitting}
                 >
-                  {isSubmitting ? <Spinner /> : <ChevronRight />}
+                  {isSubmitting ? (
+                    <Spinner label="signing in" />
+                  ) : (
+                    <ChevronRight />
+                  )}
                 </Button>
               )}
             </div>
