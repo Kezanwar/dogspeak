@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -37,6 +39,23 @@ type Client struct {
 	conn *websocket.Conn
 	send chan []byte
 	hub  *Hub
+
+	// superseded is set (under the hub lock) when a newer connection with the
+	// same uuid evicts this one: its frames are ignored from then on, and the
+	// close frame carries closeSuperseded so the client won't reconnect.
+	superseded atomic.Bool
+	closeOnce  sync.Once
+}
+
+// closeSuperseded is the WebSocket close code sent to an evicted connection
+// (4000-4999 is the application range). The client treats it like
+// session:superseded, in case that frame was dropped from a full buffer.
+const closeSuperseded = 4001
+
+// closeSend closes the send queue exactly once (eviction and the normal
+// disconnect cleanup can both reach it); writePump then sends a close frame.
+func (c *Client) closeSend() {
+	c.closeOnce.Do(func() { close(c.send) })
 }
 
 // maxUUIDLen bounds the client-supplied uuid (a crypto.randomUUID is 36).
@@ -89,7 +108,11 @@ func (c *Client) writePump() {
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				// The hub closed the channel — send a close frame and stop.
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				payload := []byte{}
+				if c.superseded.Load() {
+					payload = websocket.FormatCloseMessage(closeSuperseded, "session superseded")
+				}
+				c.conn.WriteMessage(websocket.CloseMessage, payload)
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
@@ -111,7 +134,7 @@ func (c *Client) readPump() {
 	defer func() {
 		c.hub.remove(c)
 		c.hub.broadcastAll(c.id, encode(Message{Type: EventUserLeft, From: c.id}))
-		close(c.send)
+		c.closeSend()
 		slog.Info("ws disconnected", "id", c.id)
 	}()
 
