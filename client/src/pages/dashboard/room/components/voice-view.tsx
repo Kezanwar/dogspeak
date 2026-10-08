@@ -1,6 +1,7 @@
-import { LogIn, PhoneOff } from "lucide-react";
+import { LogIn, PhoneOff, Users } from "lucide-react";
 
 import ColourAvatar from "@app/components/colour-avatar";
+import EmptyState from "@app/components/empty-state";
 import { Button } from "@app/components/ui/button";
 import { LocallyMutedIcon, MutedIcon } from "@app/components/voice/mute-icons";
 import PeerMenu from "@app/components/voice/peer-menu";
@@ -31,7 +32,7 @@ const VoiceView = observer(({ channelId }: { channelId: string }) => {
     >
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-2 py-10">
         {ids.length === 0 ? (
-          <p className="text-muted-foreground text-sm">no one here yet</p>
+          <EmptyState icon={Users} text="no one here yet" />
         ) : (
           // Fixed-width tiles in a centred wrap: a few sit centred, more wrap
           // onto further rows — and a short last row stays centred too

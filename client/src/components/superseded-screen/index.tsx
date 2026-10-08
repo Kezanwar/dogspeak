@@ -9,7 +9,7 @@ import store from "@app/stores";
 // dashboard is unmounted, so this tab has released its mic and socket.
 // "continue here" reconnects, which supersedes the other tab in turn.
 const SupersededScreen = () => (
-  <main className="bg-background text-foreground flex h-svh flex-col p-4">
+  <main className="bg-background flex h-svh flex-col p-4">
     <EmptyState icon={AppWindow} text="you're connected in another tab">
       <p className="text-muted-foreground/80 max-w-xs text-center text-xs">
         dogspeak is open somewhere else — close this tab or continue here.

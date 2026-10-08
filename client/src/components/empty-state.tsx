@@ -13,7 +13,7 @@ const EmptyState = ({
   text: string;
   children?: ReactNode;
 }) => (
-  <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 text-sm">
+  <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm">
     <Icon className="size-6 opacity-60" />
     {text}
     {children}
