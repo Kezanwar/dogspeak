@@ -9,15 +9,20 @@
 /** RMS that reads as a full meter (100%). */
 export const METER_CEILING_RMS = 0.35;
 
-/** The original VAD voice floor (~9% on the meter). The glow never lights below it. */
-export const VOICE_FLOOR_RMS = 0.03;
+/**
+ * The glow's noise floor, ≈6% on the meter (0.02 RMS): the glow never lights
+ * below it. Dropped to sit level with the default activation level, so at
+ * the default the glow lines up with the gate (it lights when you transmit);
+ * still above typical idle hiss (with noiseSuppression on), so the glow
+ * doesn't flicker on noise when the slider is near the open/bottom end.
+ */
+export const VOICE_FLOOR_RMS = 0.02;
 
 /**
- * Activation level used when nothing is saved, and by "reset". 15% ≈ 0.0525
- * RMS: just above the voice floor, so out of the box the gate trims idle hiss
- * while normal speech clears it easily.
+ * Activation level used when nothing is saved, and by "reset". 6% ≈ 0.021
+ * RMS: a gentle default gate.
  */
-export const DEFAULT_THRESHOLD = 15;
+export const DEFAULT_THRESHOLD = 6;
 
 const clamp = (v: number, lo: number, hi: number) =>
   Math.min(hi, Math.max(lo, v));
