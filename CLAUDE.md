@@ -54,6 +54,9 @@ Monorepo: `server/` (Go signalling server) + `client/` (React SPA).
   Mutate observables only in actions; use `runInAction` after `await`.
 - UI: Tailwind v4 + shadcn/ui (`client/src/components/ui`).
 - HTTP: axios, relative `baseURL` `/api` (`VITE_API_BASE_URL` empty), `withCredentials: true`. WS URL derives from `location`. Socket: singleton in `src/socket/socket.ts`; types in `src/socket/events.ts` (mirrors `docs/events.md`).
+- **Mic chain:** `micSource → micGain → gateGain → micDest`. micDest's track is the outgoing WebRTC track (device
+  switch repoints micSource only — no renegotiation). VAD + voice-activation gate run in ONE loop on a PRE-gate tap
+  (micGain's output); one shared level↔percent scale in `audio/level.ts`. Self-mute = track.enabled=false, overrides all.
 - **Spelling: British `colour`** everywhere (wire fields + variables). **UI labels are lowercase** ("general", "lounge", "afk").
 - Run `tsc`/build before a PR.
 

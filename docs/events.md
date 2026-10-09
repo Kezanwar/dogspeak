@@ -118,11 +118,12 @@ because a fresh connection is always unmuted. Mute is a presence fact about the
 connection, so it survives channel switches.
 
 Local-only audio controls — muting someone _for yourself_, per-person volume,
-your output volume and mic gain — never cross the wire. Per-person mute/volume
+your output volume, mic gain and voice activation (the noise-gate threshold) —
+never cross the wire. A closed gate just sends silence on the same track. Per-person mute/volume
 are keyed by the other person's **uuid** (not their connection id) and
-persisted locally, so they survive both their reconnects and your reloads. One coupling: dragging your
-mic gain to 0% self-mutes you (sending the ordinary `user:mute`) and raising it
-from 0% unmutes — no extra event or field.
+persisted locally, so they survive both their reconnects and your reloads.
+Mic gain is independent of self-mute: 0% sends silence but does **not** send
+`user:mute` (no muted icon for peers) — self-mute is only the mute control.
 
 A `session:welcome` frame looks like this (`to` is your own id; `users` includes you):
 
