@@ -17,9 +17,9 @@ import store, { observer } from "@app/stores";
 const DEFAULT = "__default__";
 
 // Microphone choice. Reads observable device state from the audio store and
-// writes through the audio manager, which persists it and — if you're in an
-// audio channel — swaps the live track in place. Applies immediately (it's
-// not part of the name/colour draft that "save" commits).
+// writes through the audio manager, which — if you're in an audio channel —
+// swaps the live track's source in place. Applies immediately as a preview;
+// the settings modal's save persists it and cancel switches back.
 const MicPicker = observer(() => {
   const { audio: a } = store;
   const [asking, setAsking] = useState(false);
