@@ -1,6 +1,7 @@
 import { makeObservable, observable, action, computed } from "mobx";
 import type { RootStore } from "@app/stores";
 import { DEFAULT_THRESHOLD } from "@app/audio/level";
+import { audio } from "@app/audio/audio";
 
 const MIC_KEY = "$MobX-mic";
 const VOLUME_KEY = "$MobX-volume";
@@ -14,6 +15,19 @@ const clamp = (v: number, lo: number, hi: number) =>
   Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : hi;
 
 export type MicDevice = { deviceId: string; label: string };
+
+/**
+ * The settings → audio tab's values. The tab is transactional: changes
+ * apply live (peers hear them) but only commit() persists; cancel restores
+ * the snapshot taken when the modal opened.
+ */
+export type AudioSettingsSnapshot = {
+  micDeviceId: string;
+  micDeviceLabel: string;
+  outputVolume: number;
+  micGain: number;
+  voiceThreshold: number;
+};
 
 // The observable face of the audio manager (src/audio/audio.ts). The manager
 // keeps everything imperative (pcs, AudioContext, analysers) to itself and
@@ -111,6 +125,7 @@ class AudioStore {
       voiceThreshold: observable,
       setVoiceThreshold: action,
       resetVoiceThreshold: action,
+      restore: action,
       selfMuted: computed,
       toggleSelfMute: action,
       setSelfMute: action,
@@ -161,21 +176,13 @@ class AudioStore {
     this.activeMic = mic;
   }
 
-  /** Persist the chosen input ("" = system default). */
+  /**
+   * The chosen input ("" = system default). Live only — commit() persists
+   * it (the audio tab is save-or-cancel).
+   */
   setMicChoice(deviceId: string, label: string) {
     this.micDeviceId = deviceId;
     this.micDeviceLabel = deviceId ? label : "";
-    try {
-      localStorage.setItem(
-        MIC_KEY,
-        JSON.stringify({
-          deviceId: this.micDeviceId,
-          label: this.micDeviceLabel,
-        }),
-      );
-    } catch {
-      // storage full / disabled — the choice just won't survive a reload
-    }
   }
 
   // ── self-mute (broadcast via presence) ──
@@ -193,9 +200,9 @@ class AudioStore {
   }
 
   /**
-   * Set my mic mute (persisted + broadcast); shared by the button and the
-   * mic-volume slider. Idempotent: no persist / re-broadcast when nothing
-   * changes, so the gain coupling can't send duplicate user:mute/unmute.
+   * Set my mic mute (persisted + broadcast). The ONLY way to self-mute — mic
+   * volume is a separate local preference with no effect on it. Idempotent:
+   * no persist / re-broadcast when nothing changes.
    */
   setSelfMute(muted: boolean) {
     if (muted === this.selfMuted) return;
@@ -205,14 +212,6 @@ class AudioStore {
       // storage full / disabled — mute just won't survive a refresh
     }
     this.rootStore.presence.setMuted(muted);
-    // Unmuting must make you audible again: if the slider was at 0% (e.g.
-    // muted by dragging it there, then unmuted via the button), restore 100%.
-    // Set the field directly — going through setMicGain would re-fire the
-    // zero-crossing. The manager's micGain reaction applies it to the node.
-    if (!muted && this.micGain === 0) {
-      this.micGain = 1;
-      this.#persistVolume();
-    }
   }
 
   /**
@@ -295,49 +294,82 @@ class AudioStore {
     }
   }
 
+  // ── settings → audio tab: live setters (preview), commit on save ──
+  // The setters below update the observable, which the audio manager's
+  // reactions apply to the live chain at once — but they never persist.
+  // commit() does, on the modal's save; restore() reverts on cancel.
+
+  /** Master output volume, 0..1. Live only (see commit). */
   setOutputVolume(volume: number) {
     this.outputVolume = clamp(volume, 0, 1);
-    this.#persistVolume();
   }
 
   /**
-   * Mic volume. Crossing zero drives self-mute: dragging to 0% mutes you
-   * (broadcast, icon, persisted — the normal self-mute path), and raising it
-   * back up from 0% unmutes you.
+   * My mic volume, 0..2 — a pure local preference: no effect on self-mute
+   * and nothing broadcast (0% is silent but not flagged muted; going silent
+   * is the mute button's job). Live only (see commit).
    */
   setMicGain(gain: number) {
-    const prev = this.micGain;
     this.micGain = clamp(gain, 0, MIC_GAIN_MAX);
-    this.#persistVolume();
-    if (this.micGain === 0 && prev !== 0) this.setSelfMute(true);
-    else if (this.micGain > 0 && prev === 0) this.setSelfMute(false);
   }
 
-  /** Voice-activation level, 0..100 on the meter scale. Persisted. */
+  /** Voice-activation level, 0..100 on the meter scale. Live only (see commit). */
   setVoiceThreshold(threshold: number) {
     this.voiceThreshold = Math.round(clamp(threshold, 0, 100));
-    try {
-      localStorage.setItem(
-        VOICE_GATE_KEY,
-        JSON.stringify({ threshold: this.voiceThreshold }),
-      );
-    } catch {
-      // storage full / disabled — just won't survive a reload
-    }
   }
 
   resetVoiceThreshold() {
     this.setVoiceThreshold(DEFAULT_THRESHOLD);
   }
 
-  #persistVolume() {
+  /** The audio tab's current values (taken when the settings modal opens). */
+  snapshot(): AudioSettingsSnapshot {
+    return {
+      micDeviceId: this.micDeviceId,
+      micDeviceLabel: this.micDeviceLabel,
+      outputVolume: this.outputVolume,
+      micGain: this.micGain,
+      voiceThreshold: this.voiceThreshold,
+    };
+  }
+
+  /**
+   * Cancel: put the snapshot back in the store AND on the live chain —
+   * including switching the capture device back (through the manager, whose
+   * switch-sequence guard stops a slow revert losing to a newer change).
+   * Nothing is persisted.
+   */
+  restore(snap: AudioSettingsSnapshot) {
+    this.outputVolume = snap.outputVolume;
+    this.micGain = snap.micGain;
+    this.voiceThreshold = snap.voiceThreshold;
+    if (snap.micDeviceId !== this.micDeviceId) {
+      void audio.setMic(snap.micDeviceId, snap.micDeviceLabel);
+    } else {
+      this.micDeviceLabel = snap.micDeviceLabel;
+    }
+  }
+
+  /** Save: persist the audio tab's values (mic, volumes, voice activation). */
+  commit() {
     try {
+      localStorage.setItem(
+        MIC_KEY,
+        JSON.stringify({
+          deviceId: this.micDeviceId,
+          label: this.micDeviceLabel,
+        }),
+      );
       localStorage.setItem(
         VOLUME_KEY,
         JSON.stringify({ output: this.outputVolume, micGain: this.micGain }),
       );
+      localStorage.setItem(
+        VOICE_GATE_KEY,
+        JSON.stringify({ threshold: this.voiceThreshold }),
+      );
     } catch {
-      // storage full / disabled
+      // storage full / disabled — settings just won't survive a reload
     }
   }
 }

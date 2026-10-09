@@ -278,8 +278,9 @@ class AudioManager {
   }
 
   /**
-   * Pick an input ("" = system default). Always persisted; if we're in an
-   * audio channel the live track is swapped in place, no rejoin.
+   * Pick an input ("" = system default). Applied live (persisted only when
+   * the settings modal is saved); if we're in an audio channel the live
+   * track's source is swapped in place, no rejoin.
    */
   async setMic(deviceId: string, label: string) {
     this.#store?.setMicChoice(deviceId, label);

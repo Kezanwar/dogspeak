@@ -4,9 +4,10 @@ import { Label } from "@app/components/ui/label";
 import store, { observer } from "@app/stores";
 import { MIC_GAIN_MAX } from "@app/stores/audio";
 
-// Your own volume controls. Persisted, applied live (not part of the
-// name/colour draft): output scales everyone you hear; mic volume is a gain
-// on what you send (>100% boosts, and can boost background noise too).
+// Your own volume controls. Applied live as a preview; persisted on the
+// settings modal's save (cancel reverts). Output scales everyone you hear;
+// mic volume is a gain on what you send (>100% boosts, and can boost
+// background noise too) — a pure preference, separate from self-mute.
 const VolumeSettings = observer(() => {
   const { audio } = store;
   const output = Math.round(audio.outputVolume * 100);
@@ -37,8 +38,8 @@ const VolumeSettings = observer(() => {
         <div className="flex items-center justify-between">
           <Label htmlFor="mic-volume">mic volume</Label>
           <span className="text-muted-foreground flex items-center gap-1 text-xs tabular-nums">
-            {/* 0% also self-mutes you (raising it unmutes); same red mic-off
-                as the member tile, with the warning kept for screen readers. */}
+            {/* 0% sends silence (but doesn't mute you — that's the mute
+                button); same red mic-off as a warning, also for screen readers. */}
             {audio.micGain === 0 && (
               <MicOff
                 role="img"

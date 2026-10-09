@@ -1,11 +1,10 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Check, Mic, User } from "lucide-react";
 
 import { Button } from "@app/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -26,6 +25,7 @@ import VolumeSettings from "@app/layouts/dashboard/components/volume-settings";
 import VoiceActivation from "@app/layouts/dashboard/components/voice-activation";
 import store from "@app/stores";
 import { NAME_MAX_LENGTH, PROFILE_COLOURS } from "@app/stores/profile";
+import type { AudioSettingsSnapshot } from "@app/stores/audio";
 
 type Tab = "profile" | "audio";
 const TAB_KEY = "$MobX-settings-tab";
@@ -52,22 +52,71 @@ type Props = {
   onOpenChange: (open: boolean) => void;
 };
 
+// Explicit save-or-cancel. Backdrop clicks and Escape don't close it; the
+// only ways out are save, cancel and the X (which is cancel).
+//
+// The audio tab is transactional: its controls apply LIVE (peers hear the
+// change at once — tune the gate while mates tell you what they hear) but
+// nothing persists until save → audio.commit(). Cancel / X → audio.restore()
+// puts the values from when the modal opened back, live chain and mic
+// device included. The profile tab keeps its own draft as before.
 const SettingsModal = ({ open, onOpenChange }: Props) => {
+  // The audio tab's values as the modal opened; null once saved/cancelled.
+  const snap = useRef<AudioSettingsSnapshot | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    snap.current = store.audio.snapshot();
+    // Closed or unmounted without save/cancel (e.g. maintenance swapped the
+    // app out): revert rather than leave unsaved preview values behind.
+    return () => {
+      if (snap.current) store.audio.restore(snap.current);
+      snap.current = null;
+    };
+  }, [open]);
+
+  const cancel = () => {
+    if (snap.current) store.audio.restore(snap.current);
+    snap.current = null;
+    onOpenChange(false);
+  };
+
+  const save = () => {
+    store.audio.commit();
+    snap.current = null;
+    onOpenChange(false);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+    // The only close Radix can still trigger here is the X → treat as cancel.
+    <Dialog
+      open={open}
+      onOpenChange={(o) => (o ? onOpenChange(true) : cancel())}
+    >
+      <DialogContent
+        className="sm:max-w-sm"
+        onEscapeKeyDown={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         {/* mounted only while open, so the draft resets from the store each time */}
-        {open && <SettingsForm onDone={() => onOpenChange(false)} />}
+        {open && <SettingsForm onSave={save} onCancel={cancel} />}
       </DialogContent>
     </Dialog>
   );
 };
 
 // Two tabs over one form. The name/colour draft lives here (not in a tab), so
-// switching tabs keeps it; save/cancel in the footer apply to it exactly as
-// before. The audio controls apply live, as they always have. Panels share a
-// min height so switching tabs doesn't resize the modal.
-const SettingsForm = ({ onDone }: { onDone: () => void }) => {
+// switching tabs keeps it. Save submits the profile draft as before and
+// commits the audio tab; cancel discards the draft and reverts the audio tab
+// (see SettingsModal). Panels share a min height so switching tabs doesn't
+// resize the modal.
+const SettingsForm = ({
+  onSave,
+  onCancel,
+}: {
+  onSave: () => void;
+  onCancel: () => void;
+}) => {
   const { profile } = store;
   const [name, setName] = useState(profile.name);
   const [colour, setColour] = useState(profile.colour);
@@ -80,7 +129,7 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
     if (!trimmed) return;
     profile.setName(trimmed);
     profile.setColour(colour);
-    onDone();
+    onSave(); // persists the audio tab, then closes
   };
 
   const onTab = (v: string) => {
@@ -90,10 +139,10 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
   };
 
   return (
-    <form onSubmit={onSubmit} className="grid gap-5">
+    <form onSubmit={onSubmit} className="grid gap-2">
       <DialogHeader>
         <DialogTitle>settings</DialogTitle>
-        <DialogDescription>how your mates see and hear you.</DialogDescription>
+        {/* <DialogDescription>how your mates see and hear you.</DialogDescription> */}
       </DialogHeader>
 
       <Tabs value={tab} onValueChange={onTab} className="gap-4">
@@ -162,7 +211,7 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
       </Tabs>
 
       <DialogFooter>
-        <Button type="button" variant="ghost" onClick={onDone}>
+        <Button type="button" variant="ghost" onClick={onCancel}>
           cancel
         </Button>
         <Button type="submit" disabled={!trimmed}>
@@ -176,6 +225,6 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
 // Shared by both panels: same rhythm, and a min height that fits the taller
 // one (audio, ~294px with the voice-activation meter) so the modal doesn't
 // jump when you switch tabs. Bump it when a panel outgrows it.
-const PANEL = "flex min-h-[294px] flex-col gap-5";
+const PANEL = "flex min-h-[294px] flex-col gap-6 pt-2";
 
 export default SettingsModal;
