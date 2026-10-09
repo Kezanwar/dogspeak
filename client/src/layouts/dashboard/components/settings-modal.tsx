@@ -23,6 +23,7 @@ import { contrastingShade } from "@app/lib/colour";
 import ColourAvatar from "@app/components/colour-avatar";
 import MicPicker from "@app/layouts/dashboard/components/mic-picker";
 import VolumeSettings from "@app/layouts/dashboard/components/volume-settings";
+import VoiceActivation from "@app/layouts/dashboard/components/voice-activation";
 import store from "@app/stores";
 import { NAME_MAX_LENGTH, PROFILE_COLOURS } from "@app/stores/profile";
 
@@ -156,6 +157,7 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
         <TabsContent value="audio" className={PANEL}>
           <MicPicker />
           <VolumeSettings />
+          <VoiceActivation />
         </TabsContent>
       </Tabs>
 
@@ -172,8 +174,8 @@ const SettingsForm = ({ onDone }: { onDone: () => void }) => {
 };
 
 // Shared by both panels: same rhythm, and a min height that fits the taller
-// one (audio, ~194px today) so the modal doesn't jump when you switch tabs.
-// Bump it when a panel outgrows it (e.g. the upcoming voice-activation controls).
-const PANEL = "flex min-h-52 flex-col gap-5";
+// one (audio, ~294px with the voice-activation meter) so the modal doesn't
+// jump when you switch tabs. Bump it when a panel outgrows it.
+const PANEL = "flex min-h-[294px] flex-col gap-5";
 
 export default SettingsModal;

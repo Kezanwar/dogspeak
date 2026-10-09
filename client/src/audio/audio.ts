@@ -7,6 +7,11 @@ import { socket } from "@app/socket/socket";
 import type { RootStore } from "@app/stores";
 import type AudioStore from "@app/stores/audio";
 import type { MicDevice } from "@app/stores/audio";
+import {
+  levelToPercent,
+  percentToLevel,
+  VOICE_FLOOR_RMS,
+} from "@app/audio/level";
 
 // Open-mic WebRTC audio mesh within a channel.
 //
@@ -32,9 +37,16 @@ const ICE_SERVERS: RTCIceServer[] = [
 ];
 
 // VAD tuning. RMS of the time-domain signal (-1..1); speech is ~0.03-0.2.
-const VAD_THRESHOLD = 0.03;
-const VAD_HANGOVER_MS = 250; // stay "speaking" this long after dropping below
-const VAD_POLL_MS = 100;
+// The floor is VOICE_FLOOR_RMS (audio/level.ts). The same loop drives my
+// voice-activation gate, so it polls fast enough that the gate opens on the
+// first syllable (~25ms detection + an 8ms attack).
+const VAD_HANGOVER_MS = 250; // stay "speaking" / gate open this long after dropping below
+const VAD_POLL_MS = 25;
+
+// Voice-activation gate ramps (seconds): open fast, close gently so the gaps
+// between words aren't clipped (the hangover holds it open first).
+const GATE_ATTACK_S = 0.008;
+const GATE_RELEASE_S = 0.12;
 
 const CUE_GAIN = 0.06; // join/leave blips: audible, well under voice
 
@@ -53,11 +65,20 @@ const listMics = async (): Promise<MicDevice[]> => {
 // getUserMedia for a specific input, falling back to the default device if
 // that one is gone (OverconstrainedError/NotFoundError). Permission errors
 // propagate — that's the mic-blocked case.
+// Echo cancellation + noise suppression on; auto gain control OFF — AGC
+// normalises levels and would fight both the manual mic volume and the
+// voice-activation threshold (the meter would jump around).
+const CAPTURE: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: false,
+};
+
 const openMic = async (deviceId?: string): Promise<MediaStream> => {
   if (deviceId) {
     try {
       return await navigator.mediaDevices.getUserMedia({
-        audio: { deviceId: { exact: deviceId } },
+        audio: { ...CAPTURE, deviceId: { exact: deviceId } },
       });
     } catch (err) {
       const name = (err as DOMException)?.name;
@@ -66,15 +87,26 @@ const openMic = async (deviceId?: string): Promise<MediaStream> => {
       console.warn("[audio] chosen mic unavailable, using default:", err);
     }
   }
-  // Browser defaults keep echo cancellation / noise suppression on.
-  return navigator.mediaDevices.getUserMedia({ audio: true });
+  return navigator.mediaDevices.getUserMedia({ audio: CAPTURE });
+};
+
+/** RMS of an analyser's current time-domain window. */
+const rmsOf = (analyser: AnalyserNode, buf: Float32Array<ArrayBuffer>) => {
+  analyser.getFloatTimeDomainData(buf);
+  let sum = 0;
+  for (const v of buf) sum += v * v;
+  return Math.sqrt(sum / buf.length);
 };
 
 type Monitor = {
-  source: MediaStreamAudioSourceNode;
+  // What feeds the analyser: a MediaStreamSource for a remote peer; for my
+  // own mic, the mic-gain node itself (tapped BEFORE the gate).
+  source: AudioNode;
+  ownSource: boolean; // we created `source` (disconnect it on unmonitor)
   analyser: AnalyserNode;
   buf: Float32Array<ArrayBuffer>;
   lastLoud: number; // ms timestamp of the last above-threshold reading
+  lastGate: number; // mine only: last reading at/above the gate threshold
   speaking: boolean;
 };
 
@@ -91,14 +123,19 @@ class AudioManager {
   #desired = new Set<string>(); // peer ids I should be connected to
   #peers = new Map<string, Peer>();
   // Capture chain, on the shared AudioContext:
-  //   raw mic → #micSource → #micGainNode (mic volume) → #micDest
-  // #localStream is #micDest's stream: the OUTGOING track every peer gets and
-  // what my VAD analyser reads. Gain + destination live for the whole channel
-  // session; switching device only swaps #micSource, so the outgoing track
-  // (and its enabled=false self-mute) never changes and peers need nothing.
+  //   raw mic → #micSource → #micGainNode (mic volume) → #gateNode (voice
+  //   activation) → #micDest
+  // #localStream is #micDest's stream: the OUTGOING track every peer gets.
+  // My VAD analyser taps #micGainNode — PRE-gate — so it reads the true input
+  // level even while the gate is shut (else it could never re-open). Gain,
+  // gate + destination live for the whole channel session; switching device
+  // only swaps #micSource, so the outgoing track (and its enabled=false
+  // self-mute) never changes and peers need nothing.
   #rawStream: MediaStream | null = null;
   #micSource: MediaStreamAudioSourceNode | null = null;
   #micGainNode: GainNode | null = null;
+  #gateNode: GainNode | null = null;
+  #gateOpen = false;
   #micDest: MediaStreamAudioDestinationNode | null = null;
   #localStream: MediaStream | null = null;
   #selfMuted = false;
@@ -115,6 +152,18 @@ class AudioManager {
   #vadTimer: ReturnType<typeof setInterval> | null = null;
   // Bumped per mic switch so an older, slower getUserMedia can't win.
   #switchSeq = 0;
+  // Input-level meter (settings → audio). While anyone's watching it we need
+  // a pre-gate analyser: the live chain's if we're in a channel, otherwise a
+  // transient "calibration" mic opened just for the meter and closed again.
+  #meterUsers = 0;
+  #cal: {
+    stream: MediaStream;
+    source: MediaStreamAudioSourceNode;
+    gain: GainNode;
+    analyser: AnalyserNode;
+  } | null = null;
+  #calSeq = 0;
+  #meterBuf = new Float32Array(512);
 
   attach(store: AudioStore | null) {
     this.#store = store;
@@ -160,20 +209,28 @@ class AudioManager {
     this.#localStream?.getTracks().forEach((t) => t.stop());
     this.#micSource?.disconnect();
     this.#micGainNode?.disconnect();
+    this.#gateNode?.disconnect();
     this.#rawStream = null;
     this.#micSource = null;
     this.#micGainNode = null;
+    this.#gateNode = null;
+    this.#gateOpen = false;
     this.#micDest = null;
     this.#localStream = null;
     this.#micReady = null;
     this.#desired.clear();
     this.#channel = "";
     this.#myId = "";
+    // Settings meter still open (e.g. left the channel with it showing): keep
+    // it live on a transient mic now the chain is gone.
+    if (this.#meterUsers > 0) void this.#startCalibration();
   }
 
   /** Full shutdown (logout/unmount): teardown plus closing the AudioContext. */
   dispose() {
+    this.#meterUsers = 0;
     this.teardown();
+    this.#stopCalibration();
     void this.#ctx?.close();
     this.#ctx = null;
   }
@@ -226,7 +283,15 @@ class AudioManager {
    */
   async setMic(deviceId: string, label: string) {
     this.#store?.setMicChoice(deviceId, label);
-    if (!this.#channel) return; // applies on next join
+    if (!this.#channel) {
+      // Not in a channel: applies on next join — but if the settings meter is
+      // open, re-point its calibration mic at the new choice.
+      if (this.#meterUsers > 0 && !this.#micGainNode) {
+        this.#stopCalibration();
+        void this.#startCalibration();
+      }
+      return;
+    }
     if (!this.#localStream) {
       await this.retryMic(); // was blocked — try again with the new choice
       return;
@@ -249,11 +314,84 @@ class AudioManager {
     }
   }
 
-  /** Live mic volume (0..2) on the outgoing chain. */
+  /** Live mic volume (0..2) on the outgoing chain (and the calibration meter). */
   setMicGain(gain: number) {
-    if (this.#micGainNode && this.#ctx) {
-      this.#micGainNode.gain.setTargetAtTime(gain, this.#ctx.currentTime, 0.02);
+    if (!this.#ctx) return;
+    for (const node of [this.#micGainNode, this.#cal?.gain]) {
+      node?.gain.setTargetAtTime(gain, this.#ctx.currentTime, 0.02);
     }
+  }
+
+  // ── input-level meter (voice-activation calibration) ───────────
+
+  /**
+   * Start showing the input meter. Refcounted; pair with endMeter(). Reuses
+   * the live capture chain's pre-gate analyser when we're in a channel, else
+   * opens a transient mic just for the meter (closed again by endMeter).
+   */
+  beginMeter() {
+    this.#meterUsers += 1;
+    this.#ensureContext(); // opening settings is a gesture: resume is allowed
+    if (!this.#micGainNode) void this.#startCalibration();
+  }
+
+  endMeter() {
+    this.#meterUsers = Math.max(0, this.#meterUsers - 1);
+    if (this.#meterUsers === 0) this.#stopCalibration();
+  }
+
+  /**
+   * Current pre-gate input level as a 0..100 meter position (same scale as
+   * the threshold), or null if there's nothing to read yet.
+   */
+  readInputLevel(): number | null {
+    const own = this.#monitors.get(this.#myId);
+    const analyser =
+      this.#micGainNode && own ? own.analyser : this.#cal?.analyser;
+    if (!analyser) return null;
+    return levelToPercent(rmsOf(analyser, this.#meterBuf));
+  }
+
+  async #startCalibration() {
+    if (this.#cal || this.#micGainNode || this.#meterUsers === 0) return;
+    const seq = ++this.#calSeq;
+    let stream: MediaStream;
+    try {
+      stream = await openMic(await this.#preferredDeviceId());
+    } catch (err) {
+      console.warn("[audio] meter: no microphone:", err);
+      return;
+    }
+    // Superseded (meter closed, chain came up, or another start) meanwhile.
+    if (
+      seq !== this.#calSeq ||
+      this.#meterUsers === 0 ||
+      this.#micGainNode ||
+      !this.#ctx
+    ) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    const source = this.#ctx.createMediaStreamSource(stream);
+    const gain = this.#ctx.createGain();
+    gain.gain.value = this.#store?.micGain ?? 1; // same pre-gate point as the chain
+    const analyser = this.#ctx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(gain);
+    gain.connect(analyser); // analysed only; never played or sent
+    this.#cal = { stream, source, gain, analyser };
+    void this.refreshDevices(); // labels are visible now
+  }
+
+  #stopCalibration() {
+    this.#calSeq += 1; // cancels an in-flight start
+    const cal = this.#cal;
+    if (!cal) return;
+    this.#cal = null;
+    cal.source.disconnect();
+    cal.gain.disconnect();
+    cal.analyser.disconnect();
+    cal.stream.getTracks().forEach((t) => t.stop()); // release the mic
   }
 
   /** Re-apply local mute + volume (per-person × master) to every <audio>. */
@@ -354,11 +492,20 @@ class AudioManager {
     if (!this.#micGainNode || !this.#micDest) {
       this.#micGainNode = ctx.createGain();
       this.#micGainNode.gain.value = this.#store?.micGain ?? 1; // 1 = transparent
+      // Voice-activation gate: starts shut; the VAD loop opens it on voice.
+      this.#gateNode = ctx.createGain();
+      this.#gateNode.gain.value = 0;
+      this.#gateOpen = false;
       this.#micDest = ctx.createMediaStreamDestination();
-      this.#micGainNode.connect(this.#micDest);
+      this.#micGainNode.connect(this.#gateNode);
+      this.#gateNode.connect(this.#micDest);
       this.#localStream = this.#micDest.stream;
       this.setSelfMuted(this.#selfMuted); // carry mute into the new track
-      this.#monitor(this.#myId, this.#localStream); // VAD on what peers hear
+      // My VAD (glow + gate) reads the PRE-gate level.
+      this.#monitorNode(this.#myId, this.#micGainNode);
+      // The live chain now feeds the settings meter: close any calibration mic
+      // so there's never a second one open.
+      this.#stopCalibration();
     }
 
     // Rebuild the source on the new device. Echo cancellation / noise
@@ -540,16 +687,26 @@ class AudioManager {
 
   #monitor(id: string, stream: MediaStream) {
     if (!this.#ctx || !id) return;
+    // not to destination — the <audio> plays it
+    this.#monitorNode(id, this.#ctx.createMediaStreamSource(stream), true);
+  }
+
+  // Analyse `source`'s output for id. ownSource: we created it, so it's ours
+  // to disconnect; otherwise (my mic-gain tap) only our edge into the analyser
+  // is removed.
+  #monitorNode(id: string, source: AudioNode, ownSource = false) {
+    if (!this.#ctx || !id) return;
     this.#unmonitor(id);
-    const source = this.#ctx.createMediaStreamSource(stream);
     const analyser = this.#ctx.createAnalyser();
     analyser.fftSize = 512;
-    source.connect(analyser); // not to destination — the <audio> plays it
+    source.connect(analyser);
     this.#monitors.set(id, {
       source,
+      ownSource,
       analyser,
       buf: new Float32Array(analyser.fftSize),
       lastLoud: 0,
+      lastGate: 0,
       speaking: false,
     });
     this.#vadTimer ??= setInterval(this.#pollVad, VAD_POLL_MS);
@@ -559,7 +716,14 @@ class AudioManager {
     const m = this.#monitors.get(id);
     if (!m) return;
     this.#monitors.delete(id);
-    m.source.disconnect();
+    if (m.ownSource) m.source.disconnect();
+    else {
+      try {
+        m.source.disconnect(m.analyser);
+      } catch {
+        // already disconnected (chain torn down)
+      }
+    }
     m.analyser.disconnect();
     if (m.speaking) this.#store?.setSpeaking(id, false);
     if (this.#monitors.size === 0 && this.#vadTimer) {
@@ -570,11 +734,21 @@ class AudioManager {
 
   #pollVad = () => {
     const now = performance.now();
+    // My voice activation: the gate opens at the slider's level; my glow uses
+    // max(voice floor, that level) so it lights exactly when I transmit once
+    // the slider is above the floor, and behaves as the plain VAD below it.
+    const gateRms = percentToLevel(this.#store?.voiceThreshold ?? 0);
     for (const [id, m] of this.#monitors) {
-      m.analyser.getFloatTimeDomainData(m.buf);
-      let sum = 0;
-      for (const v of m.buf) sum += v * v;
-      if (Math.sqrt(sum / m.buf.length) > VAD_THRESHOLD) m.lastLoud = now;
+      const rms = rmsOf(m.analyser, m.buf);
+      const mine = id === this.#myId;
+      const glowRms = mine
+        ? Math.max(VOICE_FLOOR_RMS, gateRms)
+        : VOICE_FLOOR_RMS;
+      if (rms >= glowRms) m.lastLoud = now;
+      if (mine) {
+        if (rms >= gateRms) m.lastGate = now;
+        this.#setGate(now - m.lastGate < VAD_HANGOVER_MS);
+      }
 
       const speaking =
         now - m.lastLoud < VAD_HANGOVER_MS &&
@@ -585,6 +759,22 @@ class AudioManager {
       }
     }
   };
+
+  // Open/close the voice-activation gate on transitions only: a fast attack
+  // ramp to 1, a gentler release to 0 (after the hangover). Self-mute still
+  // wins regardless — that's the track's enabled flag, downstream of this.
+  #setGate(open: boolean) {
+    const gate = this.#gateNode;
+    if (!gate || !this.#ctx || open === this.#gateOpen) return;
+    this.#gateOpen = open;
+    const t = this.#ctx.currentTime;
+    gate.gain.cancelScheduledValues(t);
+    gate.gain.setValueAtTime(gate.gain.value, t);
+    gate.gain.linearRampToValueAtTime(
+      open ? 1 : 0,
+      t + (open ? GATE_ATTACK_S : GATE_RELEASE_S),
+    );
+  }
 
   async #offer(id: string) {
     const peer = this.#peers.get(id);
