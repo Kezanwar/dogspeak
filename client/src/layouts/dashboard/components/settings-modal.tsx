@@ -5,7 +5,6 @@ import { Button } from "@app/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -140,10 +139,10 @@ const SettingsForm = ({
   };
 
   return (
-    <form onSubmit={onSubmit} className="grid gap-5">
+    <form onSubmit={onSubmit} className="grid gap-2">
       <DialogHeader>
         <DialogTitle>settings</DialogTitle>
-        <DialogDescription>how your mates see and hear you.</DialogDescription>
+        {/* <DialogDescription>how your mates see and hear you.</DialogDescription> */}
       </DialogHeader>
 
       <Tabs value={tab} onValueChange={onTab} className="gap-4">
@@ -226,6 +225,6 @@ const SettingsForm = ({
 // Shared by both panels: same rhythm, and a min height that fits the taller
 // one (audio, ~294px with the voice-activation meter) so the modal doesn't
 // jump when you switch tabs. Bump it when a panel outgrows it.
-const PANEL = "flex min-h-[294px] flex-col gap-5";
+const PANEL = "flex min-h-[294px] flex-col gap-6 pt-2";
 
 export default SettingsModal;
