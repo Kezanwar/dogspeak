@@ -1,10 +1,12 @@
 import { makeObservable, observable, action, computed } from "mobx";
 import type { RootStore } from "@app/stores";
+import { DEFAULT_THRESHOLD } from "@app/audio/level";
 
 const MIC_KEY = "$MobX-mic";
 const VOLUME_KEY = "$MobX-volume";
 const SELF_MUTED_KEY = "$MobX-self-muted";
 const LOCAL_AUDIO_KEY = "$MobX-local-audio";
+const VOICE_GATE_KEY = "$MobX-voice-gate";
 
 export const MIC_GAIN_MAX = 2; // 200%
 
@@ -51,6 +53,10 @@ class AudioStore {
   // Persisted: master output volume (0..1) and my mic gain (0..2).
   outputVolume = 1;
   micGain = 1;
+  // Voice activation (noise gate): 0..100 on the input meter's scale (see
+  // audio/level.ts). Your mic transmits only while the pre-gate level is at
+  // or above it. Persisted per browser; DEFAULT_THRESHOLD when unset.
+  voiceThreshold = DEFAULT_THRESHOLD;
 
   constructor(rootStore: RootStore) {
     this.rootStore = rootStore;
@@ -78,6 +84,15 @@ class AudioStore {
     } catch {
       // defaults
     }
+    try {
+      const g = JSON.parse(localStorage.getItem(VOICE_GATE_KEY) ?? "{}") as {
+        threshold?: unknown;
+      };
+      if (typeof g.threshold === "number" && Number.isFinite(g.threshold))
+        this.voiceThreshold = clamp(g.threshold, 0, 100);
+    } catch {
+      // default
+    }
     this.#loadLocalAudio();
     makeObservable(this, {
       micBlocked: observable,
@@ -93,6 +108,9 @@ class AudioStore {
       labelsHidden: computed,
       outputVolume: observable,
       micGain: observable,
+      voiceThreshold: observable,
+      setVoiceThreshold: action,
+      resetVoiceThreshold: action,
       selfMuted: computed,
       toggleSelfMute: action,
       setSelfMute: action,
@@ -293,6 +311,23 @@ class AudioStore {
     this.#persistVolume();
     if (this.micGain === 0 && prev !== 0) this.setSelfMute(true);
     else if (this.micGain > 0 && prev === 0) this.setSelfMute(false);
+  }
+
+  /** Voice-activation level, 0..100 on the meter scale. Persisted. */
+  setVoiceThreshold(threshold: number) {
+    this.voiceThreshold = Math.round(clamp(threshold, 0, 100));
+    try {
+      localStorage.setItem(
+        VOICE_GATE_KEY,
+        JSON.stringify({ threshold: this.voiceThreshold }),
+      );
+    } catch {
+      // storage full / disabled — just won't survive a reload
+    }
+  }
+
+  resetVoiceThreshold() {
+    this.setVoiceThreshold(DEFAULT_THRESHOLD);
   }
 
   #persistVolume() {
