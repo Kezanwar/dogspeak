@@ -74,6 +74,8 @@ Then open **http://localhost:5173** and log in with your `ROOM_PASSWORD`.
 
 > `make dev` runs both together — see the `makefile` for the exact targets.
 
+**WebRTC negotiation e2e** — with the app running, `cd client && yarn e2e:webrtc`. Two browsers join a voice channel across several scenarios (duplicate offer, mic blocked then retried, slow mic, late candidates…) and it asserts ICE connects on both sides, audio flows, and each pair negotiates exactly once. Env: `DOGSPEAK_URL` (default `http://localhost:5173`), `DOGSPEAK_PASSWORD`, `CHROMIUM_PATH`.
+
 ---
 
 ## Environment variables

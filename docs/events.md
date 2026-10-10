@@ -205,22 +205,37 @@ Both sides derive the same answer from the ids, so two offers can never cross
 
 1. Whenever your channel or its member list changes, work out the peers you
    should be connected to: everyone else in your audio channel.
-2. For each new peer, create the `RTCPeerConnection` up front (mic track added,
-   ICE/track handlers wired). If `myId < theirId`, send them a `peer:offer`;
-   otherwise wait for theirs and reply with a `peer:answer`.
+2. For each new peer, create the `RTCPeerConnection` up front (outgoing track
+   added, ICE/track handlers wired). If `myId < theirId` — and only once your
+   own id is known — send them a `peer:offer`; otherwise wait for theirs and
+   reply with a `peer:answer`.
 3. ICE candidates (`peer:candidate`) can arrive before the remote description is
-   set — buffer them per peer and add them once it is.
+   set, or even before the connection exists — buffer them per peer and add
+   them once it is.
+
+**One negotiation per connection, ever.** Never close and recreate a
+connection that's negotiated (or negotiating): a fresh connection has a fresh
+ICE agent the other side never learns about — it's already `stable`, so it
+ignores the new answer and never re-sends candidates — and ICE sits at `new`
+for good. So:
+
+- A second/duplicate `peer:offer` for a connection that already has (or is
+  applying) a remote description is **ignored**.
+- Glare can't happen by the id rule, but if an offer ever arrives while you're
+  in `have-local-offer`: the designated offerer (smaller id) ignores it; the
+  other side rolls its own offer back, then answers.
+- The outgoing track exists from the moment you join — the capture chain's
+  destination track, silent until the mic is plugged in — so mic timing (a
+  permission prompt, a block, a retry, a device switch) never needs signalling.
 4. Close the connection for anyone no longer in your channel (`user:left`, or a
    `user:change_channel` that moves them out).
 
 Leaving/switching a channel: close every peer connection and release the mic,
 then (if the new channel has audio) re-acquire it and apply the rules above.
 
-**Mic retry:** if your mic was blocked and a retry succeeds, your existing
-connections are receive-only. Rebuild instead of renegotiating: close them and
-send a fresh `peer:offer` to everyone in the channel, whatever the ids (they're
-idle, so there's no glare). A peer that gets an offer for a connection it has
-already negotiated replaces it and answers.
+**Mic retry:** if your mic was blocked and a retry succeeds, nothing is
+renegotiated — the outgoing track has been on every connection since you
+joined (sending silence); the mic now just feeds it.
 
 **AFK / no audio:** joining `afk` is a normal `user:change_channel`; the client
 just skips `getUserMedia` and opens no peer connections. You appear present, silent.

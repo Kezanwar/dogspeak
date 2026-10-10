@@ -115,13 +115,21 @@ type Peer = {
   audio: HTMLAudioElement | null;
   // ICE candidates that arrived before the remote description was set.
   pendingCandidates: RTCIceCandidateInit[];
+  // Negotiation happens exactly once per pc: we've sent our offer / we're
+  // applying (or have applied) theirs. Guards against duplicate offers.
+  offered: boolean;
+  answering: boolean;
 };
+
+// Candidates for a peer we have no pc for yet are held briefly (bounded).
+const MAX_EARLY_CANDIDATES = 50;
 
 class AudioManager {
   #myId = "";
   #channel = ""; // the audio channel the mesh is currently built for ("" = none)
   #desired = new Set<string>(); // peer ids I should be connected to
   #peers = new Map<string, Peer>();
+  #earlyCandidates = new Map<string, RTCIceCandidateInit[]>();
   // Capture chain, on the shared AudioContext:
   //   raw mic → #micSource → #micGainNode (mic volume) → #gateNode (voice
   //   activation) → #micDest
@@ -183,14 +191,16 @@ class AudioManager {
       // We're inside the channel-join gesture here: create/resume the shared
       // context now, or it starts suspended and every analyser reads silence.
       this.#ensureContext();
+      // The outgoing track exists from the start (silent until the mic is
+      // plugged in), so peer connections are built — and negotiated, once —
+      // right away. Mic timing (a permission prompt, a block, a retry, a
+      // device switch) never touches signalling.
+      this.#ensureChain();
       this.#micReady = this.#acquireMic(this.#generation);
     }
 
     this.#desired = new Set(memberIds.filter((id) => id !== myId));
-    const gen = this.#generation;
-    void this.#micReady?.then(() => {
-      if (gen === this.#generation) this.#reconcile();
-    });
+    this.#reconcile();
   }
 
   /** Leave the mesh: close every pc, drop every <audio>, release the mic. */
@@ -218,6 +228,7 @@ class AudioManager {
     this.#micDest = null;
     this.#localStream = null;
     this.#micReady = null;
+    this.#earlyCandidates.clear();
     this.#desired.clear();
     this.#channel = "";
     this.#myId = "";
@@ -241,13 +252,13 @@ class AudioManager {
    * immediately without prompting — the banner points at site settings.
    */
   async retryMic() {
-    if (!this.#channel || this.#localStream) return;
+    if (!this.#channel || this.#micSource) return;
     const gen = this.#generation;
     this.#ensureContext(); // retry click is a fresh gesture
     this.#micReady = this.#acquireMic(gen);
     await this.#micReady;
-    if (gen !== this.#generation || !this.#localStream) return;
-    this.#rebuildMesh();
+    // Nothing to renegotiate: the outgoing track has been on every pc since
+    // we joined; the mic now just feeds it.
   }
 
   // ── microphone choice ──────────────────────────────────────────
@@ -287,13 +298,13 @@ class AudioManager {
     if (!this.#channel) {
       // Not in a channel: applies on next join — but if the settings meter is
       // open, re-point its calibration mic at the new choice.
-      if (this.#meterUsers > 0 && !this.#micGainNode) {
+      if (this.#meterUsers > 0 && !this.#micSource) {
         this.#stopCalibration();
         void this.#startCalibration();
       }
       return;
     }
-    if (!this.#localStream) {
+    if (!this.#micSource) {
       await this.retryMic(); // was blocked — try again with the new choice
       return;
     }
@@ -333,7 +344,7 @@ class AudioManager {
   beginMeter() {
     this.#meterUsers += 1;
     this.#ensureContext(); // opening settings is a gesture: resume is allowed
-    if (!this.#micGainNode) void this.#startCalibration();
+    if (!this.#micSource) void this.#startCalibration();
   }
 
   endMeter() {
@@ -348,13 +359,13 @@ class AudioManager {
   readInputLevel(): number | null {
     const own = this.#monitors.get(this.#myId);
     const analyser =
-      this.#micGainNode && own ? own.analyser : this.#cal?.analyser;
+      this.#micSource && own ? own.analyser : this.#cal?.analyser;
     if (!analyser) return null;
     return levelToPercent(rmsOf(analyser, this.#meterBuf));
   }
 
   async #startCalibration() {
-    if (this.#cal || this.#micGainNode || this.#meterUsers === 0) return;
+    if (this.#cal || this.#micSource || this.#meterUsers === 0) return;
     const seq = ++this.#calSeq;
     let stream: MediaStream;
     try {
@@ -367,7 +378,7 @@ class AudioManager {
     if (
       seq !== this.#calSeq ||
       this.#meterUsers === 0 ||
-      this.#micGainNode ||
+      this.#micSource ||
       !this.#ctx
     ) {
       stream.getTracks().forEach((t) => t.stop());
@@ -490,24 +501,11 @@ class AudioManager {
     const old = this.#rawStream;
     this.#rawStream = raw;
 
-    if (!this.#micGainNode || !this.#micDest) {
-      this.#micGainNode = ctx.createGain();
-      this.#micGainNode.gain.value = this.#store?.micGain ?? 1; // 1 = transparent
-      // Voice-activation gate: starts shut; the VAD loop opens it on voice.
-      this.#gateNode = ctx.createGain();
-      this.#gateNode.gain.value = 0;
-      this.#gateOpen = false;
-      this.#micDest = ctx.createMediaStreamDestination();
-      this.#micGainNode.connect(this.#gateNode);
-      this.#gateNode.connect(this.#micDest);
-      this.#localStream = this.#micDest.stream;
-      this.setSelfMuted(this.#selfMuted); // carry mute into the new track
-      // My VAD (glow + gate) reads the PRE-gate level.
-      this.#monitorNode(this.#myId, this.#micGainNode);
-      // The live chain now feeds the settings meter: close any calibration mic
-      // so there's never a second one open.
-      this.#stopCalibration();
-    }
+    this.#ensureChain();
+    if (!this.#micGainNode) return;
+    // The live chain now feeds the settings meter: close any calibration mic
+    // so there's never a second one open.
+    this.#stopCalibration();
 
     // Rebuild the source on the new device. Echo cancellation / noise
     // suppression were applied at capture, so they're preserved.
@@ -538,6 +536,28 @@ class AudioManager {
     }
   }
 
+  // The capture chain minus its source: mic gain → gate → destination, plus
+  // my pre-gate VAD tap. Built once per channel session, at join, so the
+  // destination's track (the outgoing one, self-mute included) exists before
+  // any peer connection — the mic is plugged in later by #adoptStream.
+  #ensureChain() {
+    const ctx = this.#ctx;
+    if (!ctx || this.#micGainNode) return;
+    this.#micGainNode = ctx.createGain();
+    this.#micGainNode.gain.value = this.#store?.micGain ?? 1; // 1 = transparent
+    // Voice-activation gate: starts shut; the VAD loop opens it on voice.
+    this.#gateNode = ctx.createGain();
+    this.#gateNode.gain.value = 0;
+    this.#gateOpen = false;
+    this.#micDest = ctx.createMediaStreamDestination();
+    this.#micGainNode.connect(this.#gateNode);
+    this.#gateNode.connect(this.#micDest);
+    this.#localStream = this.#micDest.stream;
+    this.setSelfMuted(this.#selfMuted); // carry mute into the new track
+    // My VAD (glow + gate) reads the PRE-gate level.
+    this.#monitorNode(this.#myId, this.#micGainNode);
+  }
+
   // Switch input device live. Only the chain's source changes: the outgoing
   // destination track — already on every peer's sender — keeps flowing, so no
   // replaceTrack or renegotiation is needed; the old device is then released.
@@ -566,29 +586,33 @@ class AudioManager {
     for (const id of this.#desired) {
       if (this.#peers.has(id)) continue;
       this.#createPeer(id);
-      if (this.#myId < id) void this.#offer(id); // smaller id offers
+      if (this.#isOfferer(id)) void this.#offer(id);
     }
   }
 
-  // After a mic retry succeeds our existing pcs are receive-only. Rather than
-  // renegotiate each one, start fresh: close them and send a new offer to
-  // every peer (whatever the ids — they're idle, so there's no glare). Their
-  // onOffer sees an already-negotiated pc, replaces it, and answers.
-  #rebuildMesh() {
-    for (const id of [...this.#peers.keys()]) this.#closePeer(id);
-    for (const id of this.#desired) {
-      this.#createPeer(id);
-      void this.#offer(id);
-    }
+  // Exactly one side of each pair offers: the smaller connection id. Never
+  // decided without my own id (an empty id would sort first on BOTH sides,
+  // and both would offer).
+  #isOfferer(id: string): boolean {
+    return !!this.#myId && !!id && this.#myId < id;
   }
 
   #createPeer(id: string): Peer {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    const peer: Peer = { pc, audio: null, pendingCandidates: [] };
+    const peer: Peer = {
+      pc,
+      audio: null,
+      // Candidates that arrived before this pc existed.
+      pendingCandidates: this.#earlyCandidates.get(id) ?? [],
+      offered: false,
+      answering: false,
+    };
+    this.#earlyCandidates.delete(id);
     this.#peers.set(id, peer);
 
-    // Add the mic track up front so offer/answer never needs renegotiation.
-    // Without a mic we still want to hear them: receive-only transceiver.
+    // Add the outgoing track up front (it exists from join, silent until the
+    // mic is plugged in) so offer/answer never needs renegotiation. Only if
+    // the chain couldn't be built at all do we fall back to receive-only.
     const track = this.#localStream?.getAudioTracks()[0];
     if (track && this.#localStream) pc.addTrack(track, this.#localStream);
     else pc.addTransceiver("audio", { direction: "recvonly" });
@@ -633,6 +657,7 @@ class AudioManager {
   }
 
   #closePeer(id: string) {
+    this.#earlyCandidates.delete(id);
     const peer = this.#peers.get(id);
     if (!peer) return;
     this.#peers.delete(id);
@@ -779,7 +804,8 @@ class AudioManager {
 
   async #offer(id: string) {
     const peer = this.#peers.get(id);
-    if (!peer) return;
+    if (!peer || peer.offered || !this.#isOfferer(id)) return;
+    peer.offered = true;
     try {
       const offer = await peer.pc.createOffer();
       if (this.#peers.get(id) !== peer) return; // closed meanwhile
@@ -791,29 +817,42 @@ class AudioManager {
   }
 
   // ── signalling handlers ────────────────────────────────────────
-  // Each waits for the mic attempt first, so the local track is on the pc
-  // before we answer. Stale generations (we've left since) are dropped.
+  // ONE negotiation per pc, up front. No handler ever closes and recreates a
+  // pc: a fresh pc would have a fresh ICE agent the other side never learns
+  // about (its answer is ignored once that side is stable, and it never
+  // re-sends candidates), so ICE would wedge at "new".
 
   async #onOffer(from: string, offer: RTCSessionDescriptionInit) {
-    const gen = this.#generation;
-    await this.#micReady;
-    if (gen !== this.#generation || !this.#channel) return;
+    if (!this.#channel) return;
+    const peer = this.#peers.get(from) ?? this.#createPeer(from);
 
-    let peer = this.#peers.get(from);
-    // A fresh offer for a pc that's already negotiated means they rebuilt
-    // their side (e.g. left and came back) — start ours over too.
-    if (peer?.pc.remoteDescription) {
-      this.#closePeer(from);
-      peer = undefined;
+    // Duplicate / late offer for a pc that's already negotiated (or busy
+    // applying one): ignore it — the live connection stands.
+    if (peer.answering || peer.pc.remoteDescription) {
+      console.warn(`[audio] ignoring duplicate offer from ${from}`);
+      return;
     }
-    peer ??= this.#createPeer(from);
+    // Glare (shouldn't happen — only the smaller id offers — but never apply
+    // an offer blind in have-local-offer): the designated offerer is the
+    // impolite peer and keeps its own offer; the other side rolls back.
+    if (
+      peer.pc.signalingState === "have-local-offer" &&
+      this.#isOfferer(from)
+    ) {
+      console.warn(`[audio] glare with ${from}: keeping my offer`);
+      return;
+    }
 
+    peer.answering = true;
     try {
+      if (peer.pc.signalingState === "have-local-offer") {
+        await peer.pc.setLocalDescription({ type: "rollback" });
+      }
       await peer.pc.setRemoteDescription(offer);
       await this.#flushCandidates(peer);
       const answer = await peer.pc.createAnswer();
+      if (this.#peers.get(from) !== peer) return; // closed meanwhile
       await peer.pc.setLocalDescription(answer);
-      if (this.#peers.get(from) !== peer) return;
       socket.send({ type: EVENT.PeerAnswer, to: from, data: answer });
     } catch (err) {
       console.warn(`[audio] answering ${from} failed:`, err);
@@ -832,12 +871,16 @@ class AudioManager {
   }
 
   async #onCandidate(from: string, candidate: RTCIceCandidateInit) {
-    const gen = this.#generation;
-    await this.#micReady;
-    if (gen !== this.#generation) return;
-
+    if (!this.#channel) return;
     const peer = this.#peers.get(from);
-    if (!peer) return;
+    if (!peer) {
+      // Their candidates beat our pc (e.g. presence for them not applied
+      // yet): hold them for #createPeer rather than drop them.
+      const early = this.#earlyCandidates.get(from) ?? [];
+      if (early.length < MAX_EARLY_CANDIDATES) early.push(candidate);
+      this.#earlyCandidates.set(from, early);
+      return;
+    }
     // Candidates can beat the offer/answer here — hold them until the
     // remote description is set, or ICE silently misses them ("no audio").
     if (!peer.pc.remoteDescription) {

@@ -57,6 +57,10 @@ Monorepo: `server/` (Go signalling server) + `client/` (React SPA).
 - **Mic chain:** `micSource → micGain → gateGain → micDest`. micDest's track is the outgoing WebRTC track (device
   switch repoints micSource only — no renegotiation). VAD + voice-activation gate run in ONE loop on a PRE-gate tap
   (micGain's output); one shared level↔percent scale in `audio/level.ts`. Self-mute = track.enabled=false, overrides all.
+- **WebRTC: one negotiation per peer connection, ever.** The capture chain (and its outgoing track) is built at
+  channel join, before the mic, so pcs are created + negotiated immediately and never renegotiated. Only the smaller
+  (known, non-empty) id offers; duplicate offers are ignored; never close+recreate a negotiated pc (ICE wedges at
+  "new"). `yarn e2e:webrtc` (client/e2e) guards this.
 - **Spelling: British `colour`** everywhere (wire fields + variables). **UI labels are lowercase** ("general", "lounge", "afk").
 - Run `tsc`/build before a PR.
 
