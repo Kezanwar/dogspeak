@@ -71,7 +71,7 @@ const listMics = async (): Promise<MicDevice[]> => {
 const CAPTURE: MediaTrackConstraints = {
   echoCancellation: true,
   noiseSuppression: true,
-  autoGainControl: false,
+  autoGainControl: true,
 };
 
 const openMic = async (deviceId?: string): Promise<MediaStream> => {
